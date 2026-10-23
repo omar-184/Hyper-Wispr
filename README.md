@@ -16,13 +16,21 @@ but is written from scratch and uses open-source models:
 
 ## Install (Windows)
 
-1. Download this project (green **Code** button → **Download ZIP**) and unzip it, e.g. to `Documents\Hyper-Wispr`.
-2. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
-3. Double-click `scripts\install.bat`. It installs everything and downloads the speech model
-   (a one-time download of about 0.5 to 1.6 GB).
-4. Double-click `scripts\run.bat`. A round microphone icon appears in the system tray (bottom right;
-   it may be under the ^ arrow). Grey = loading, blue = ready, red = listening, amber = working.
-5. Optional: double-click `scripts\start-with-windows.bat` to start it automatically when you log in.
+1. Go to [Releases](https://github.com/omar-184/Hyper-Wispr/releases/latest) and download
+   `Hyper-Wispr-Setup-<version>.exe`, or the `-NVIDIA` version if your PC has an NVIDIA graphics card
+   (bigger download, much faster).
+2. Run it. No administrator password is needed. If Windows says "Windows protected your PC", click
+   **More info → Run anyway** (the installer isn't code-signed).
+3. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
+   Hyper-Wispr downloads its AI model automatically.
+4. A round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
+   Grey = loading, blue = ready, red = listening, amber = working. The first start downloads the
+   speech model once (about 0.5 to 1.6 GB), so it stays grey for a few minutes.
+
+### Install from source instead
+
+Download the code (green **Code** button → **Download ZIP**), unzip it, double-click
+`scripts\install.bat`, then `scripts\run.bat`. `scripts\start-with-windows.bat` makes it start at login.
 
 ## Use
 
@@ -78,6 +86,10 @@ History is kept locally in `%APPDATA%\HyperWispr\history.sqlite3`, and the log i
 uv venv && uv pip install -e ".[dev]"
 pytest
 ```
+
+Releases: pushing a tag like `v0.2.0` runs `.github/workflows/release.yml`, which tests the code, builds the
+app with PyInstaller (CPU and NVIDIA variants), smoke-tests it, wraps it with Inno Setup and publishes the
+installers as a GitHub Release.
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
 `speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),

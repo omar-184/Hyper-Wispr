@@ -105,6 +105,20 @@ def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
     return out
 
 
+def ensure_model(settings: dict[str, Any]) -> None:
+    """Download the configured Ollama model if it isn't there yet (first run)."""
+    cfg = settings["ai_cleanup"]
+    base = cfg["ollama_url"].rstrip("/")
+    with urllib.request.urlopen(base + "/api/tags", timeout=3) as resp:
+        names = {m["name"] for m in json.loads(resp.read()).get("models", [])}
+    model = cfg["model"]
+    if model in names or f"{model}:latest" in names:
+        return
+    log.info("Downloading Ollama model %s (first run only)...", model)
+    _post(base + "/api/pull", {"model": model, "stream": False}, 3600)
+    log.info("Ollama model %s downloaded", model)
+
+
 def warm_up(settings: dict[str, Any]) -> None:
     """Load the model into memory so the first dictation isn't slow."""
     cfg = settings["ai_cleanup"]

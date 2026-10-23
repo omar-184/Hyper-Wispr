@@ -107,6 +107,8 @@ class App:
     def load_models(self) -> None:
         from .speech import Transcriber
 
+        if self.icon is not None:
+            self.icon.title = "Hyper-Wispr: loading speech model (the first start downloads it, which can take a few minutes)"
         try:
             self.transcriber = Transcriber(self.settings)
         except Exception:
@@ -118,6 +120,10 @@ class App:
         log.info("Ready: speech model %s. Hold %s to dictate.", self.transcriber.description, "+".join(self.settings["push_to_talk_keys"]))
         if self.settings["ai_cleanup"]["enabled"]:
             if ai_cleanup.is_available(self.settings):
+                try:
+                    ai_cleanup.ensure_model(self.settings)
+                except Exception as e:
+                    log.warning("Could not download the Ollama model: %s", e)
                 ai_cleanup.warm_up(self.settings)
                 log.info("AI cleanup ready with Ollama model %s", self.settings["ai_cleanup"]["model"])
             else:
@@ -168,16 +174,17 @@ class App:
         self.icon.run()
 
 
-def _make_icon(color: str):
+def _make_icon(color: str, size: int = 64):
     from PIL import Image, ImageDraw
 
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    k = size / 64
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.ellipse((4, 4, 60, 60), fill=color)
+    draw.ellipse((4 * k, 4 * k, 60 * k, 60 * k), fill=color)
     # A simple microphone shape.
-    draw.rounded_rectangle((25, 14, 39, 38), radius=7, fill="white")
-    draw.arc((19, 24, 45, 46), start=0, end=180, fill="white", width=3)
-    draw.line((32, 46, 32, 52), fill="white", width=3)
+    draw.rounded_rectangle((25 * k, 14 * k, 39 * k, 38 * k), radius=7 * k, fill="white")
+    draw.arc((19 * k, 24 * k, 45 * k, 46 * k), start=0, end=180, fill="white", width=max(1, round(3 * k)))
+    draw.line((32 * k, 46 * k, 32 * k, 52 * k), fill="white", width=max(1, round(3 * k)))
     return img
 
 

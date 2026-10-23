@@ -1,0 +1,99 @@
+name: Build Windows installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number for a test build (no release is published)"
+        default: "0.0.0-test"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [CPU, GPU]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ "${{ matrix.variant }}" = "GPU" ]; then pip install ".[gpu]"; else pip install .; fi
+          pip install "pyinstaller>=6.10"
+
+      - name: Build app
+        shell: bash
+        env:
+          HW_GPU: ${{ matrix.variant == 'GPU' && '1' || '0' }}
+        run: pyinstaller --noconfirm --distpath dist --workpath build packaging/hyper_wispr.spec
+
+      - name: Smoke test the built app
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\Hyper-Wispr\Hyper-Wispr.exe" -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content "$env:APPDATA\HyperWispr\hyper-wispr.log" -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "Self-test failed with exit code $($p.ExitCode)" }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.v.outputs.version }}" "/DVariant=${{ matrix.variant }}" packaging\installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.variant }}
+          path: dist/Hyper-Wispr-Setup-*.exe
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Hyper-Wispr-Setup-*.exe
+          body: |
+            ## Download
+
+            - **Hyper-Wispr-Setup-(version).exe**: works on any Windows 10/11 PC.
+            - **…-NVIDIA.exe**: larger download, much faster and more accurate if your PC has an NVIDIA graphics card.
+
+            Run the installer (no administrator rights needed), then hold **Ctrl + Win**, speak, and let go.
+            The first start downloads the speech model once (about 0.5 to 1.6 GB); after that everything runs offline.
+            For the optional AI cleanup step, install [Ollama](https://ollama.com/download); Hyper-Wispr downloads its model automatically.
+
+            Windows may show "Windows protected your PC" because the installer isn't code-signed: click **More info → Run anyway**.
