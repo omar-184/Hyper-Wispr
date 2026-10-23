@@ -18,6 +18,7 @@ from .history import History
 log = logging.getLogger("hyper_wispr")
 
 COLORS = {"loading": "#9e9e9e", "idle": "#3f7cff", "recording": "#e53935", "working": "#ffb300"}
+LABELS = {"loading": "Loading speech model…", "idle": "Ready", "recording": "Listening…", "working": "Transcribing…"}
 
 
 def process_text(raw: str, settings: dict[str, Any], app_type: str) -> str:
@@ -46,6 +47,9 @@ class App:
         self.actions: queue.Queue = queue.Queue()
         self.recording = False
         self.session = 0
+        self.settings_window: subprocess.Popen | None = None
+        self._settings_mtime = _mtime(config.settings_path())
+        self._model_lock = threading.Lock()
         self.machine = hotkeys.HotkeyStateMachine(
             self.settings["push_to_talk_keys"],
             self.settings.get("hands_free_tap_seconds", 0.35),
@@ -198,17 +202,65 @@ class App:
         self.status = status
         if self.icon is not None:
             self.icon.icon = _make_icon(COLORS[status])
-            self.icon.title = f"Hyper-Wispr: {status}"
+            self.icon.title = f"Hyper-Wispr: {LABELS[status]}"
 
     def open_settings(self, *_: Any) -> None:
-        _open(config.settings_path())
+        """Show the Settings window. It is a separate process so it can't freeze dictation."""
+        if self.settings_window is not None and self.settings_window.poll() is None:
+            return  # already open
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--settings"]
+        else:
+            cmd = [sys.executable, "-m", "hyper_wispr", "--settings"]
+        try:
+            self.settings_window = subprocess.Popen(cmd)
+        except OSError:
+            log.exception("Could not open the Settings window; opening settings.json instead")
+            _open(config.settings_path())
+
+    def watch_settings(self) -> None:
+        """Apply changes made in the Settings window (or by hand) as soon as the file changes."""
+        path = config.settings_path()
+        while True:
+            time.sleep(1.0)
+            mtime = _mtime(path)
+            if mtime == self._settings_mtime:
+                continue
+            self._settings_mtime = mtime
+            try:
+                self.reload_settings()
+            except Exception:
+                log.exception("Could not apply the changed settings")
 
     def reload_settings(self, *_: Any) -> None:
-        self.settings.clear()
+        old_speech = dict(self.settings["speech"])
+        # update() instead of clear()+update(): other threads read self.settings at any moment.
         self.settings.update(config.load())
+        self.recorder.cfg = self.settings["audio"]
         self.machine.combo = self.settings["push_to_talk_keys"]
         self.machine.tap_seconds = self.settings.get("hands_free_tap_seconds", 0.35)
-        log.info("Settings reloaded (restart to change the speech model)")
+        log.info("Settings reloaded")
+        if self.settings["speech"] != old_speech:
+            threading.Thread(target=self.reload_model, daemon=True).start()
+
+    def reload_model(self) -> None:
+        """Load the newly chosen speech model in the background; the old one keeps working meanwhile."""
+        from .speech import Transcriber
+
+        with self._model_lock:
+            if self.transcriber is None:
+                self.load_models()  # the first load failed or is still running; this retries it
+                return
+            log.info("Speech settings changed; loading the new model")
+            try:
+                new = Transcriber(self.settings)
+            except Exception as e:
+                log.exception("Could not load the new speech model")
+                self.notify("Couldn't switch speech model", f"{e}. Still using {self.transcriber.description}.")
+                return
+            self.transcriber = new
+            log.info("Now using speech model %s", new.description)
+            self.notify("Speech model changed", f"Now using {new.description}.")
 
     def paste_last(self, *_: Any) -> None:
         last = self.history.last()
@@ -224,13 +276,14 @@ class App:
         import pystray
 
         menu = pystray.Menu(
-            pystray.MenuItem(lambda _: f"Status: {self.status}", None, enabled=False),
+            pystray.MenuItem(lambda _: LABELS[self.status], None, enabled=False),
+            # default=True: clicking the tray icon itself opens Settings.
+            pystray.MenuItem("Settings…", self.open_settings, default=True),
             pystray.MenuItem("Paste last dictation", self.paste_last),
-            pystray.MenuItem("AI cleanup (Ollama)", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
-            pystray.MenuItem("Open settings", self.open_settings),
-            pystray.MenuItem("Reload settings", self.reload_settings),
+            pystray.MenuItem("AI cleanup", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
             pystray.MenuItem("Open log folder", lambda *_: _open(config.app_dir())),
-            pystray.MenuItem("Quit", lambda icon, _: icon.stop()),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit Hyper-Wispr", lambda icon, _: icon.stop()),
         )
         self.icon = pystray.Icon("hyper-wispr", _make_icon(COLORS["loading"]), "Hyper-Wispr: loading", menu)
         self.icon.run(setup=self._start_background)
@@ -239,8 +292,10 @@ class App:
         # Runs once the tray icon exists, so status updates and notifications have somewhere to go.
         icon.visible = True
         threading.Thread(target=self.controller, daemon=True).start()
+        threading.Thread(target=self.watch_settings, daemon=True).start()
         hotkeys.listen(self.machine)
-        self.load_models()
+        with self._model_lock:  # a speech-settings change during the first load waits for it
+            self.load_models()
 
 
 def _make_icon(color: str, size: int = 64):
@@ -255,6 +310,13 @@ def _make_icon(color: str, size: int = 64):
     draw.arc((19 * k, 24 * k, 45 * k, 46 * k), start=0, end=180, fill="white", width=max(1, round(3 * k)))
     draw.line((32 * k, 46 * k, 32 * k, 52 * k), fill="white", width=max(1, round(3 * k)))
     return img
+
+
+def _mtime(path) -> float:
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return 0.0
 
 
 def _open(path) -> None:

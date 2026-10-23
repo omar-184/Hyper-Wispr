@@ -51,5 +51,9 @@ Name: "{userstartup}\Hyper-Wispr"; Filename: "{app}\Hyper-Wispr.exe"; Tasks: sta
 [Run]
 Filename: "{app}\Hyper-Wispr.exe"; Description: "Start Hyper-Wispr now"; Flags: nowait postinstall skipifsilent
 
+[UninstallDelete]
+; "Open at login" in Settings may have created this even if the installer task was unticked.
+Type: files; Name: "{userstartup}\Hyper-Wispr.lnk"
+
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM Hyper-Wispr.exe /F"; Flags: runhidden; RunOnceId: "StopApp"

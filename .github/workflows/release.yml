@@ -65,6 +65,11 @@ jobs:
           $p = Start-Process -FilePath "dist\Hyper-Wispr\Hyper-Wispr.exe" -ArgumentList "--self-test" -Wait -PassThru
           Get-Content "$env:APPDATA\HyperWispr\hyper-wispr.log" -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { throw "Self-test failed with exit code $($p.ExitCode)" }
+          # Opens the Settings window for a moment to check the bundled WebView2 page can talk to Python.
+          $p = Start-Process -FilePath "dist\Hyper-Wispr\Hyper-Wispr.exe" -ArgumentList "--settings-self-test" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Settings window self-test hung" }
+          Get-Content "$env:APPDATA\HyperWispr\hyper-wispr.log" -Tail 5 -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "Settings window self-test failed with exit code $($p.ExitCode)" }
 
       - name: Build installer
         shell: pwsh

@@ -116,5 +116,8 @@ def load(path: Path | None = None) -> dict[str, Any]:
 
 def save(settings: dict[str, Any], path: Path | None = None) -> None:
     path = path or settings_path()
-    with path.open("w", encoding="utf-8") as f:
+    # Write a temp file and swap it in, so the running app never reads half a file.
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)

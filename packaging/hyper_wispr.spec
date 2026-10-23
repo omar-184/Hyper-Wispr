@@ -10,10 +10,13 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = collect_data_files("faster_whisper") + collect_data_files("onnxruntime")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("sounddevice")
 datas += collect_data_files("_sounddevice_data")
+datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files
+datas += collect_data_files("webview")
 hiddenimports = (
     collect_submodules("hyper_wispr")
     + collect_submodules("pynput")
     + collect_submodules("pystray")
+    + ["webview.platforms.edgechromium", "webview.platforms.winforms", "clr"]
     + ["ctranslate2", "onnxruntime", "av"]
 )
 
