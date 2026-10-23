@@ -13,6 +13,8 @@ dependencies = [
     "pyperclip>=1.8",
     "pystray>=0.19",
     "Pillow>=10",
+    # Settings window: shows web/ in Windows' built-in Edge WebView2.
+    "pywebview>=5.3",
 ]
 
 [project.optional-dependencies]
@@ -28,4 +30,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["hyper_wispr"]
+packages = ["hyper_wispr", "hyper_wispr.settings_ui"]
+
+[tool.setuptools.package-data]
+"hyper_wispr.settings_ui" = ["web/*"]

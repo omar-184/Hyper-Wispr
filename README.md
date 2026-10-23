@@ -45,10 +45,19 @@ Download the code (green **Code** button → **Download ZIP**), unzip it, double
 
 ## Customize
 
-Tray icon → **Open settings**. This opens `%APPDATA%\HyperWispr\settings.json` in Notepad.
-After saving, choose **Reload settings** in the tray menu (changes to the speech model need a restart).
+Click the tray icon (or right-click → **Settings…**) to open the Settings window:
 
-Useful settings:
+- **General**: change the shortcut by pressing the keys you want, pick and test your microphone, sounds, paste or type.
+- **Speech**: speech model, English with optional Arabic (or other languages), GPU or processor.
+- **AI cleanup**: turn the Ollama step on or off, medical mode, which model, your own extra instructions.
+- **Vocabulary**: dictionary words, replacements, snippets, filler words.
+- **History**: your recent dictations with a copy button.
+
+Changes save immediately and the running app applies them within a second (a new speech model loads in the
+background while the old one keeps working).
+
+Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which you can also edit by hand
+(Settings → About → Open file). For example:
 
 ```json
 {
@@ -95,4 +104,5 @@ installers as a GitHub Release.
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
 `speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
-`paste.py` (clipboard paste), `app.py` (tray app tying it together).
+`paste.py` (clipboard paste), `app.py` (tray app tying it together), `settings_ui/` (the Settings window:
+a pywebview page in `web/`, run as a separate process with `--settings`).

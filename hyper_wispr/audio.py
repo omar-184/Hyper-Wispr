@@ -83,6 +83,12 @@ class Recorder:
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
         return resample(audio, self._device_rate)
 
+    def level(self) -> float:
+        """Loudness of the last few audio blocks, for the on-screen level bars."""
+        with self._lock:
+            recent = self._chunks[-4:]
+        return rms(np.concatenate(recent)) if recent else 0.0
+
     def device_name(self) -> str:
         try:
             info = self._sd.query_devices(self.cfg.get("input_device"), "input")
