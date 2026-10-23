@@ -87,7 +87,7 @@ uv venv && uv pip install -e ".[dev]"
 pytest
 ```
 
-Releases: pushing a tag like `v0.2.0` runs `.github/workflows/release.yml`, which tests the code, builds the
+Releases: pushing a tag like `v0.2.0` (or running the workflow from the Actions tab with **publish** ticked) runs `.github/workflows/release.yml`, which tests the code, builds the
 app with PyInstaller (CPU and NVIDIA variants), smoke-tests it, wraps it with Inno Setup and publishes the
 installers as a GitHub Release.
 

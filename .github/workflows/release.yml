@@ -6,8 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version number for a test build (no release is published)"
+        description: "Version number, e.g. 0.1.0"
         default: "0.0.0-test"
+      publish:
+        description: "Publish a GitHub Release (creates tag v<version>)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -75,7 +79,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || inputs.publish
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -85,6 +89,9 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+          name: Hyper-Wispr ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+          target_commitish: ${{ github.sha }}
           files: Hyper-Wispr-Setup-*.exe
           body: |
             ## Download
