@@ -1,0 +1,31 @@
+[project]
+name = "hyper-wispr"
+version = "0.1.0"
+description = "Offline, customizable voice dictation for Windows (Whisper + optional local LLM cleanup)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "faster-whisper>=1.1",
+    "numpy",
+    "sounddevice>=0.4",
+    "pynput>=1.7",
+    "pyperclip>=1.8",
+    "pystray>=0.19",
+    "Pillow>=10",
+]
+
+[project.optional-dependencies]
+# NVIDIA GPU support on Windows: the CUDA libraries faster-whisper needs.
+gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
+dev = ["pytest"]
+
+[project.scripts]
+hyper-wispr = "hyper_wispr.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["hyper_wispr"]

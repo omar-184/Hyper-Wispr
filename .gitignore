@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+# Never commit material extracted from the Wispr Flow app.
+reference/
+*.asar
