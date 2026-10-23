@@ -105,6 +105,34 @@ def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
     return out
 
 
+def try_start_ollama(settings: dict[str, Any]) -> bool:
+    """Ollama is installed but not running: start its server in the background and wait briefly."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import time
+
+    exe = shutil.which("ollama")
+    if not exe and sys.platform == "win32":
+        candidate = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
+        exe = candidate if os.path.exists(candidate) else None
+    if not exe:
+        return False
+    log.info("Starting Ollama")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.Popen([exe, "serve"], creationflags=flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        log.warning("Could not start Ollama: %s", e)
+        return False
+    for _ in range(20):
+        time.sleep(0.5)
+        if is_available(settings):
+            return True
+    return False
+
+
 def ensure_model(settings: dict[str, Any]) -> None:
     """Download the configured Ollama model if it isn't there yet (first run)."""
     cfg = settings["ai_cleanup"]

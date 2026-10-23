@@ -37,7 +37,7 @@ Download the code (green **Code** button → **Download ZIP**), unzip it, double
 | Do this | What happens |
 | --- | --- |
 | Hold **Ctrl + Win**, speak, release | Text is pasted at your cursor |
-| Hold **Ctrl + Win**, tap **Space**, let go | Hands-free: keeps listening. Press **Ctrl + Win** again to finish |
+| Tap **Ctrl + Win** quickly | Hands-free: keeps listening. Tap **Ctrl + Win** again to finish |
 | Press **Esc** while listening | Cancel, nothing is pasted |
 | Say "new line", "new paragraph", "comma", "period", "question mark" | Inserts that punctuation |
 | Say "scratch that" | Deletes the sentence you just said |
@@ -53,7 +53,7 @@ Useful settings:
 ```json
 {
   "push_to_talk_keys": ["ctrl_l", "cmd"],
-  "speech": { "model": "auto", "language": "" },
+  "speech": { "model": "auto", "languages": ["en", "ar"] },
   "dictionary": ["apixaban", "empagliflozin", "laparoscopic cholecystectomy"],
   "replacements": { "hyper whisper": "Hyper-Wispr" },
   "snippets": { "my signature": "Dr. Jane Doe\nDepartment of Medicine" },
@@ -66,7 +66,9 @@ Useful settings:
 - **snippets**: say the trigger phrase on its own and the full text is pasted.
 - **speech.model**: `auto` picks `large-v3-turbo` with an NVIDIA GPU and `small` on CPU. Bigger = more accurate but slower:
   `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, `large-v3`. English-only versions (`small.en`, `medium.en`) are a bit more accurate for English.
-- **speech.language**: leave empty to auto-detect, or set e.g. `"en"` or `"ar"` to force one.
+- **speech.languages**: the languages you dictate in (default `["en"]`). With one language it is always used;
+  with several, Hyper-Wispr picks the most likely of them each time. Guessing from all languages is unreliable
+  for short dictations, so keep this list short. `speech.language` forces a single language.
 - **ai_cleanup.model**: any Ollama model. `qwen2.5:3b` is fast; `qwen2.5:7b` or `llama3.1:8b` are better if you have a good GPU.
 - **push_to_talk_keys**: key names like `ctrl_l`, `ctrl_r`, `cmd` (the Windows key), `alt_l`, `shift_r`, `f8`.
 

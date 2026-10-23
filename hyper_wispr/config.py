@@ -18,8 +18,8 @@ DEFAULTS: dict[str, Any] = {
     # Hold these keys to talk; release to transcribe and paste.
     # Names follow pynput: ctrl, ctrl_l, ctrl_r, cmd (Windows key), alt, shift, space, f1..f24.
     "push_to_talk_keys": ["ctrl_l", "cmd"],
-    # Press push-to-talk keys + this key to start hands-free mode; press push-to-talk again to stop.
-    "hands_free_extra_key": "space",
+    # Tap the push-to-talk keys (shorter than this) to start hands-free mode; tap again to stop.
+    "hands_free_tap_seconds": 0.35,
     "speech": {
         # "auto" picks large-v3-turbo on an NVIDIA GPU and "small" on CPU.
         # Other options: tiny, base, small, medium, large-v3, large-v3-turbo, distil-large-v3,
@@ -27,8 +27,11 @@ DEFAULTS: dict[str, Any] = {
         "model": "auto",
         "device": "auto",  # auto | cuda | cpu
         "compute_type": "auto",  # auto | float16 | int8_float16 | int8
-        # Empty = detect the language automatically. Examples: "en", "ar", "fr".
+        # Force one language ("en", "ar", ...). Empty = pick from "languages" below.
         "language": "",
+        # Languages you dictate in. With one entry it is always used; with several, the most
+        # likely of these is detected each time; empty = any language (least reliable).
+        "languages": ["en"],
         "beam_size": 5,
         # Skip silent stretches so Whisper doesn't invent text in long pauses.
         "vad_filter": True,
@@ -38,6 +41,8 @@ DEFAULTS: dict[str, Any] = {
         "input_device": None,  # None = Windows default microphone
         # Recordings shorter than this are treated as accidental key presses.
         "min_seconds": 0.35,
+        # Recordings quieter than this (RMS) are treated as "no speech" and nothing is typed.
+        "silence_threshold": 0.003,
         "max_seconds": 360,
         "sounds": True,
     },

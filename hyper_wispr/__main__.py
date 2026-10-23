@@ -36,9 +36,46 @@ def main() -> None:
         print("FINAL:", process_text(raw, settings, args.app_type))
         return
 
+    if not acquire_single_instance():
+        logging.info("Another copy is already running; exiting")
+        already_running_message()
+        return
+
     from .app import App
 
     App().run()
+
+
+_instance_lock = None
+
+
+def acquire_single_instance() -> bool:
+    """Only one tray app may run: two copies both record and both paste every dictation."""
+    global _instance_lock
+    if sys.platform != "win32":
+        return True
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    _instance_lock = kernel32.CreateMutexW(None, False, "Local\\HyperWisprTrayApp")
+    ERROR_ALREADY_EXISTS = 183
+    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+
+
+def already_running_message() -> None:
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    MB_ICONINFORMATION = 0x40
+    ctypes.windll.user32.MessageBoxW(
+        None,
+        "Hyper-Wispr is already running. Look for the round microphone icon in the system tray "
+        "(bottom right of the screen, possibly under the ^ arrow).",
+        "Hyper-Wispr",
+        MB_ICONINFORMATION,
+    )
 
 
 def self_test() -> int:

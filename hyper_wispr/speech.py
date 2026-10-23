@@ -37,7 +37,23 @@ def cuda_available() -> bool:
         return False
 
 
-def resolve(cfg: dict[str, Any]) -> tuple[str, str, str]:
+# Best first. Older NVIDIA cards (e.g. GTX 10-series) can't do float16, which is what
+# broke GPU loading in v0.1.0; they still work with int8 or float32.
+_GPU_COMPUTE_PREFERENCE = ["float16", "int8_float16", "int8_float32", "int8", "float32"]
+
+
+def gpu_compute_types() -> list[str]:
+    try:
+        import ctranslate2
+
+        supported = set(ctranslate2.get_supported_compute_types("cuda"))
+    except Exception:
+        return []
+    return [c for c in _GPU_COMPUTE_PREFERENCE if c in supported]
+
+
+def resolve(cfg: dict[str, Any]) -> tuple[str, str, list[str]]:
+    """Returns (model, device, compute types to try in order)."""
     device = cfg.get("device", "auto")
     if device == "auto":
         device = "cuda" if cuda_available() else "cpu"
@@ -45,9 +61,42 @@ def resolve(cfg: dict[str, Any]) -> tuple[str, str, str]:
     if model == "auto":
         model = "large-v3-turbo" if device == "cuda" else "small"
     compute = cfg.get("compute_type", "auto")
-    if compute == "auto":
-        compute = "float16" if device == "cuda" else "int8"
-    return model, device, compute
+    if compute != "auto":
+        computes = [compute]
+    elif device == "cuda":
+        computes = gpu_compute_types() or ["float32"]
+    else:
+        computes = ["int8"]
+    return model, device, computes
+
+
+def prepare_audio(audio: np.ndarray) -> np.ndarray:
+    """Remove DC offset and bring quiet microphones up to a level Whisper and the VAD handle well."""
+    audio = audio.astype(np.float32, copy=False)
+    if audio.size == 0:
+        return audio
+    audio = audio - float(np.mean(audio))
+    peak = float(np.max(np.abs(audio)))
+    if peak > 1e-4:
+        audio = audio * min(0.9 / peak, 30.0)
+    return audio
+
+
+def pick_language(cfg: dict[str, Any], detected: list[tuple[str, float]] | None) -> str | None:
+    """Explicit language wins; otherwise the most likely of the allowed languages.
+
+    Auto-detecting from a few seconds of speech is unreliable (v0.1.0 typed Finnish for English),
+    so detection is limited to the languages the user actually speaks.
+    """
+    if cfg.get("language"):
+        return cfg["language"]
+    allowed = [lang for lang in cfg.get("languages", []) if lang]
+    if len(allowed) == 1:
+        return allowed[0]
+    if not allowed or not detected:
+        return None
+    probs = dict(detected)
+    return max(allowed, key=lambda lang: probs.get(lang, 0.0))
 
 
 class Transcriber:
@@ -56,29 +105,48 @@ class Transcriber:
 
         _add_cuda_dll_dirs()
         self.settings = settings
-        model, device, compute = resolve(settings["speech"])
-        log.info("Loading Whisper model %s on %s (%s)", model, device, compute)
-        try:
-            self.model = WhisperModel(model, device=device, compute_type=compute)
-        except Exception as e:
+        model, device, computes = resolve(settings["speech"])
+        self.model = None
+        for compute in computes:
+            log.info("Loading Whisper model %s on %s (%s)", model, device, compute)
+            try:
+                self.model = WhisperModel(model, device=device, compute_type=compute)
+                # Missing GPU libraries only fail on first use, so run once now.
+                list(self.model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)[0])
+                break
+            except Exception as e:
+                self.model = None
+                log.warning("Could not load %s on %s with %s: %s", model, device, compute, e)
+        if self.model is None:
             if device != "cuda":
-                raise
-            log.warning("GPU load failed (%s); falling back to CPU", e)
-            model, device, compute = resolve({**settings["speech"], "device": "cpu"})
+                raise RuntimeError(f"Could not load speech model {model}")
+            log.warning("GPU unavailable; falling back to CPU")
+            model, device, computes = resolve({**settings["speech"], "device": "cpu", "compute_type": "auto"})
+            compute = computes[0]
             self.model = WhisperModel(model, device=device, compute_type=compute)
-        self.description = f"{model} on {device.upper()}"
+        self.description = f"{model} on {device.upper()} ({compute})"
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray | str) -> str:
         cfg = self.settings["speech"]
+        if not isinstance(audio, str):
+            audio = prepare_audio(audio)
+        detected = None
+        allowed = [lang for lang in cfg.get("languages", []) if lang]
+        if not cfg.get("language") and len(allowed) > 1 and not isinstance(audio, str):
+            _lang, _prob, detected = self.model.detect_language(audio)
+        language = pick_language(cfg, detected)
         # The initial prompt nudges Whisper toward your spelling of names and jargon.
         words = self.settings.get("dictionary", [])
         prompt = ("Vocabulary: " + ", ".join(words) + ".") if words else None
-        segments, _info = self.model.transcribe(
+        segments, info = self.model.transcribe(
             audio,
-            language=cfg.get("language") or None,
+            language=language,
             beam_size=cfg.get("beam_size", 5),
             vad_filter=cfg.get("vad_filter", True),
             initial_prompt=prompt,
             condition_on_previous_text=False,
         )
-        return " ".join(s.text.strip() for s in segments).strip()
+        text = " ".join(s.text.strip() for s in segments).strip()
+        # Only the length is logged: dictation can contain patient information.
+        log.info("Transcribed %d characters (language %s)", len(text), info.language)
+        return text
