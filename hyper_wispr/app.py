@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any
 
-from . import ai_cleanup, cleanup, config, context, hotkeys, paste
+from . import ai_cleanup, cleanup, config, context, hotkeys, overlay, paste
 from .audio import Recorder, chime, rms
 from .history import History
 
@@ -48,6 +48,12 @@ class App:
         self.recording = False
         self.session = 0
         self.settings_window: subprocess.Popen | None = None
+        self.overlay = overlay.Overlay(
+            level=self.recorder.level,
+            position=self.settings["overlay"].get("position", "bottom"),
+            enabled=self.settings["overlay"].get("enabled", True),
+            hands_free=lambda: self.machine.state == hotkeys.HANDS_FREE,
+        )
         self._settings_mtime = _mtime(config.settings_path())
         self._model_lock = threading.Lock()
         self.machine = hotkeys.HotkeyStateMachine(
@@ -200,6 +206,7 @@ class App:
     # ---- tray ------------------------------------------------------------
     def set_status(self, status: str) -> None:
         self.status = status
+        self.overlay.show({"recording": overlay.RECORDING, "working": overlay.WORKING}.get(status, overlay.HIDDEN))
         if self.icon is not None:
             self.icon.icon = _make_icon(COLORS[status])
             self.icon.title = f"Hyper-Wispr: {LABELS[status]}"
@@ -239,6 +246,8 @@ class App:
         self.recorder.cfg = self.settings["audio"]
         self.machine.combo = self.settings["push_to_talk_keys"]
         self.machine.tap_seconds = self.settings.get("hands_free_tap_seconds", 0.35)
+        self.overlay.enabled = self.settings["overlay"].get("enabled", True)
+        self.overlay.position = self.settings["overlay"].get("position", "bottom")
         log.info("Settings reloaded")
         if self.settings["speech"] != old_speech:
             threading.Thread(target=self.reload_model, daemon=True).start()

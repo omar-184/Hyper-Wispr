@@ -70,6 +70,10 @@ jobs:
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Settings window self-test hung" }
           Get-Content "$env:APPDATA\HyperWispr\hyper-wispr.log" -Tail 5 -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { throw "Settings window self-test failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath "dist\Hyper-Wispr\Hyper-Wispr.exe" -ArgumentList "--overlay-self-test" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "Overlay self-test hung" }
+          Get-Content "$env:APPDATA\HyperWispr\hyper-wispr.log" -Tail 3 -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "Overlay self-test failed with exit code $($p.ExitCode)" }
 
       - name: Build installer
         shell: pwsh

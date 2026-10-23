@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--self-test", action="store_true", help="check that all components load, then exit (used by the build)")
     parser.add_argument("--settings", action="store_true", help="open the Settings window (the tray app does this for you)")
     parser.add_argument("--settings-self-test", action="store_true", help="open the Settings window, check it works, close it (used by the build)")
+    parser.add_argument("--overlay-self-test", action="store_true", help="flash the listening indicator, then exit (used by the build)")
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args()
 
@@ -26,6 +27,11 @@ def main() -> None:
 
     if args.self_test:
         sys.exit(self_test())
+
+    if args.overlay_self_test:
+        from .overlay import self_test as overlay_self_test
+
+        sys.exit(overlay_self_test())
 
     if args.settings or args.settings_self_test:
         # Runs next to the tray app, so it must not take the single-instance lock below.

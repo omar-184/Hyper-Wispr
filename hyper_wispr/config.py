@@ -79,6 +79,8 @@ DEFAULTS: dict[str, Any] = {
         "add_trailing_space": True,
     },
     "history": {"enabled": True, "keep_audio": False},
+    # The floating "Listening…" pill while you dictate. position: "bottom" or "top" of the screen.
+    "overlay": {"enabled": True, "position": "bottom"},
 }
 
 

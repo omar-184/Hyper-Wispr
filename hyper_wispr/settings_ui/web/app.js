@@ -506,6 +506,10 @@ function generalPage() {
       get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation.", toggle("paste.restore_clipboard")),
       row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
     ]),
+    section("On-screen indicator", [
+      row("Show while dictating", "A small \"Listening\" bubble with voice bars appears while recording, then \"Transcribing\" until the text is typed.", toggle("overlay.enabled", () => render())),
+      get("overlay.enabled") && row("Position", null, segmented("overlay.position", [{ value: "bottom", label: "Bottom" }, { value: "top", label: "Top" }])),
+    ]),
     startRow && section("System", [startRow]),
   ];
 }
