@@ -80,7 +80,7 @@ def test_starred_words_come_first_without_repeats():
 def test_command_rewrites_selection(monkeypatch):
     seen = {}
 
-    def post(url, payload, timeout):
+    def post(url, payload, timeout, *a):
         seen["user"] = payload["messages"][1]["content"]
         return {"message": {"content": "```\nPatient stable. Discharge tomorrow.\n```"}}
 

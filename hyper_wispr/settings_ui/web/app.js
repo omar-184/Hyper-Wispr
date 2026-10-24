@@ -867,7 +867,7 @@ function aiPage() {
         "How your text should sound in each kind of app."),
       advanced([
         row("Skip AI for short phrases", "Fewer words than this skip the AI, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
-        row("Time limit (seconds)", "If the AI takes longer, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
+        row("Time limit (seconds)", "If the AI hasn't started by then, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
         row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
       ]),
     ], [

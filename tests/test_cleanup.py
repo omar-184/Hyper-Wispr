@@ -164,3 +164,130 @@ def test_ai_failure_of_any_kind_keeps_the_text(monkeypatch):
     monkeypatch.setattr(ai_cleanup, "_post", broken)
     s = config.merge(config.DEFAULTS, {})
     assert ai_cleanup.refine("the patient is doing well today", s, context.OTHER) == "the patient is doing well today"
+
+
+def test_ai_never_adds_a_route_or_how_often(monkeypatch):
+    """Measured with qwen2.5:3b: "apixaban 5 milligrams twice a day" came back "5 mg PO BID"."""
+    s = config.merge(config.DEFAULTS, {})
+    said = "Start apixaban 5 mg twice a day and furosemide 40 mg intravenously."
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Start apixaban 5 mg PO BID. Furosemide 40 mg IV."}})
+    assert ai_cleanup.refine(said, s, context.DOCUMENT) == said
+    # Writing what was said in short is fine.
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Start apixaban 5 mg BID and furosemide 40 mg IV."}})
+    assert ai_cleanup.refine(said, s, context.DOCUMENT) == "Start apixaban 5 mg BID and furosemide 40 mg IV."
+    assert ai_cleanup.adds_route("give tylenol 1 g", "Give Tylenol 1 g PRN.")
+    assert ai_cleanup.adds_route("start heparin", "Start heparin STAT.")
+    assert not ai_cleanup.adds_route("give it by mouth as needed at night", "Give it PO PRN QHS.")
+    assert not ai_cleanup.adds_route("I'm seeing the PR interval", "I'm seeing the PR interval.")
+
+
+def test_markdown_the_ai_adds_is_removed(monkeypatch):
+    """Measured with qwen2.5:3b: drug names came back in **bold** with markdown line breaks."""
+    s = config.merge(config.DEFAULTS, {})
+    said = "Continue nimodipine 60 mg every 4 hours. Start a nicardipine infusion."
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Continue **nimodipine** 60 mg every 4 hours.  \nStart a **nicardipine** infusion."}})
+    assert ai_cleanup.refine(said, s, context.DOCUMENT) == "Continue nimodipine 60 mg every 4 hours.\nStart a nicardipine infusion."
+    assert "markdown" in ai_cleanup.build_system_prompt(s, context.DOCUMENT)
+    assert "PO BID" not in ai_cleanup.build_system_prompt(s, context.DOCUMENT)  # the example the model copied
+
+
+def test_the_instructions_that_never_change_come_first():
+    """Ollama reuses what it already read when a request starts the same way as the last one."""
+    s = config.merge(config.DEFAULTS, {"dictionary": ["Farghal"]})
+    s["ai_cleanup"]["extra_instructions"] = "Use British spelling."
+    warm_up = ai_cleanup.build_system_prompt(s, context.DOCUMENT)
+    assert "Farghal" in warm_up and "British spelling" in warm_up and "Medical writing rules" in warm_up
+    for text in ("start metaprolol tomorrow", "give keprah tonight"):
+        prompt = ai_cleanup.build_system_prompt(s, context.DOCUMENT, text=text, before="Plan:")
+        assert prompt.startswith(warm_up) and len(prompt) > len(warm_up)
+
+
+class _Ollama:
+    """A local server that streams an answer the way Ollama does, one JSON line at a time."""
+
+    def __init__(self, first_after: float, lines: list[str], every: float = 0.0):
+        import http.server
+        import json
+        import threading
+        import time
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"  # chunked, like Ollama
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                time.sleep(first_after)
+                for i, text in enumerate(lines):
+                    data = (json.dumps({"message": {"content": text}, "done": i == len(lines) - 1}) + "\n").encode()
+                    self.wfile.write(b"%X\r\n%s\r\n" % (len(data), data))
+                    self.wfile.flush()
+                    time.sleep(every)
+                self.wfile.write(b"0\r\n\r\n")
+
+            def log_message(self, *a):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_a_long_answer_may_finish_but_a_slow_start_fails_fast():
+    import time
+
+    import pytest
+
+    s = config.merge(config.DEFAULTS, {})
+    words = ["word "] * 20
+    server = _Ollama(first_after=0.05, lines=words, every=0.06)  # 1.2 s in all, more than the 1 s limit
+    try:
+        s["ai_cleanup"]["ollama_url"] = server.url
+        assert ai_cleanup._chat(s, "system", "user", 1, budget=5) == ("word " * 20).strip()
+        with pytest.raises(TimeoutError):
+            ai_cleanup._chat(s, "system", "user", 1, budget=0.5)
+    finally:
+        server.close()
+    server = _Ollama(first_after=1.5, lines=["late"])
+    try:
+        s["ai_cleanup"]["ollama_url"] = server.url
+        t = time.monotonic()
+        with pytest.raises(OSError):  # a socket timeout: the model didn't start within the limit
+            ai_cleanup._chat(s, "system", "user", 0.5, budget=30)
+        assert time.monotonic() - t < 1.2
+    finally:
+        server.close()
+
+
+def test_warm_up_reads_the_instructions(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ai_cleanup, "_post", lambda url, payload, timeout, *a: seen.append((url, payload)) or {"message": {"content": "OK"}})
+    s = config.merge(config.DEFAULTS, {})
+    ai_cleanup.warm_up(s, context.EMAIL)
+    url, payload = seen[0]
+    assert url.endswith("/api/chat") and payload["options"]["num_predict"] == 1
+    assert payload["messages"][0]["content"] == ai_cleanup.build_system_prompt(s, context.EMAIL)
+
+
+def test_prewarm_only_when_the_model_may_have_been_let_go(monkeypatch):
+    import threading
+    import time
+
+    calls = []
+    done = threading.Event()
+    monkeypatch.setattr(ai_cleanup, "warm_up", lambda s, app_type: (calls.append(app_type), done.set()))
+    s = config.merge(config.DEFAULTS, {})
+    monkeypatch.setattr(ai_cleanup, "_last_answer", time.monotonic())  # answered a moment ago
+    monkeypatch.setattr(ai_cleanup, "_last_warm_up", float("-inf"))
+    ai_cleanup.prewarm(s, context.EMAIL)
+    monkeypatch.setattr(ai_cleanup, "_last_answer", time.monotonic() - 31 * 60)
+    ai_cleanup.prewarm(s, context.EMAIL)
+    ai_cleanup.prewarm(s, context.EMAIL)  # a second dictation right after: already on its way
+    assert done.wait(2) and calls == [context.EMAIL]

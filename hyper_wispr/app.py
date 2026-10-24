@@ -183,6 +183,7 @@ class App:
             self.focus = uia.focus()
         if self.settings["audio"].get("mute_media", True):
             media.mute_others()
+        ai_cleanup.prewarm(self.settings, self.target.app_type)
         # Safety net for a forgotten hands-free recording.
         session = self.session
         limit = self.settings["audio"].get("max_seconds", 360)

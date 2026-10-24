@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+import time
 import urllib.request
 from collections import Counter
 from typing import Any
@@ -28,7 +30,8 @@ Rules:
 - Remove filler words, stutters and repeated words.
 - When the speaker corrects themselves ("at 5, no, at 6", "I mean", "actually"), keep only the corrected version.
 - When the speaker lists items, format them as a list with one item per line.
-- Keep existing line breaks."""
+- Keep existing line breaks.
+- Plain text only: no markdown, no asterisks, no bold."""
 
 STYLE = {
     context.EMAIL: "The text is going into an email. Use complete sentences and normal email paragraphs.",
@@ -47,7 +50,7 @@ TONES = {
 
 MEDICAL_RULES = """Medical writing rules:
 - Spell drug names, conditions, procedures and anatomy correctly.
-- Keep every number, dose, unit, frequency and route exactly as spoken (e.g. "5 mg PO BID").
+- Keep every number, dose, unit, frequency and route as spoken. Never add a route, frequency or unit that wasn't said.
 - Write numbers as digits for doses, vitals and lab values.
 - If the speaker corrects a number, dose or unit, keep both as spoken; never choose between them.
 - Keep standard clinical abbreviations (BP, HR, CBC, MRI, PRN, etc.)."""
@@ -74,30 +77,48 @@ def build_system_prompt(settings: dict[str, Any], app_type: str, before: str = "
     parts.append(TONES.get(style_for(settings, app_type), TONES["formal"]))
     if medical.enabled(settings):
         parts.append(MEDICAL_RULES)
-        if text and (terms := medical.ai_terms(text, settings)):
-            parts.append(
-                "Medical terms that sound like words of this dictation. Where the speaker clearly meant one of "
-                "them, spell it exactly like this; never add one that wasn't said: " + ", ".join(terms)
-            )
     if words := dictionary_words(settings):
         parts.append("Spell these words exactly like this: " + ", ".join(words))
+    if cfg.get("extra_instructions"):
+        parts.append(cfg["extra_instructions"])
+    # What changes with every dictation comes last: Ollama reuses the instructions above when they
+    # match the last request's, instead of reading them again (seconds on a processor).
+    if medical.enabled(settings) and text and (terms := medical.ai_terms(text, settings)):
+        parts.append(
+            "Medical terms that sound like words of this dictation. Where the speaker clearly meant one of "
+            "them, spell it exactly like this; never add one that wasn't said: " + ", ".join(terms)
+        )
     if before.strip():
         parts.append(
             "The dictation will be inserted right after the text below, which is already on the screen. Continue it "
             "naturally (no capital letter mid-sentence) and spell any names and terms the way they appear there. "
             "Return only the new text, never the text below.\n<before>\n" + before[-600:] + "\n</before>"
         )
-    if cfg.get("extra_instructions"):
-        parts.append(cfg["extra_instructions"])
     return "\n\n".join(parts)
 
 
-def _post(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+def _post(url: str, payload: dict[str, Any], timeout: float, budget: float | None = None) -> dict[str, Any]:
+    """timeout: the longest wait for any part of the answer. A streamed answer's first part comes once
+    the model is loaded and has read the prompt, so a slow start fails fast while a long answer that
+    is being written may take up to `budget` seconds in all."""
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
     )
+    start = time.monotonic()
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+        if not payload.get("stream"):
+            return json.loads(resp.read())
+        parts, last = [], {}
+        for line in resp:  # one JSON object per line
+            last = json.loads(line)
+            if "error" in last:
+                raise RuntimeError(last["error"])
+            parts.append((last.get("message") or {}).get("content", ""))
+            if last.get("done"):
+                break
+            if budget is not None and time.monotonic() - start > budget:
+                raise TimeoutError(f"no complete answer within {budget:.0f} s")
+        return {**last, "message": {"role": "assistant", "content": "".join(parts)}}
 
 
 def is_available(settings: dict[str, Any]) -> bool:
@@ -109,29 +130,43 @@ def is_available(settings: dict[str, Any]) -> bool:
         return False
 
 
-def _chat(settings: dict[str, Any], system: str, user: str, timeout: float) -> str:
+# When Ollama last answered: it keeps the model loaded for 30 minutes after that.
+_last_answer = _last_warm_up = float("-inf")
+
+
+def _chat(settings: dict[str, Any], system: str, user: str, timeout: float, budget: float | None = None,
+          max_words: int | None = None) -> str:
+    """budget: stream the answer (see _post); max_words: stop after that many (a warm-up needs one)."""
+    global _last_answer
     cfg = settings["ai_cleanup"]
     payload = {
         "model": cfg["model"],
-        "stream": False,
+        "stream": budget is not None,
         "keep_alive": "30m",
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, **({"num_predict": max_words} if max_words else {})},
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
     url = cfg["ollama_url"].rstrip("/") + "/api/chat"
-    return _post(url, payload, timeout)["message"]["content"].strip()
+    answer = _post(url, payload, timeout, budget) if budget is not None else _post(url, payload, timeout)
+    _last_answer = time.monotonic()
+    return answer["message"]["content"].strip()
 
 
 def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "") -> str:
     cfg = settings["ai_cleanup"]
-    if not cfg.get("enabled") or len(text.split()) < cfg.get("min_words", 0):
+    words = len(text.split())
+    if not cfg.get("enabled") or words < cfg.get("min_words", 0):
         return text
+    # The time limit is for the AI to start; then it writes about 10 words a second on a processor,
+    # so a long dictation gets the time to finish instead of waiting out the limit for nothing.
+    limit = cfg.get("timeout_seconds", 8)
     try:
-        out = _chat(settings, build_system_prompt(settings, app_type, before, text), f"<dictation>\n{text}\n</dictation>", cfg.get("timeout_seconds", 8))
+        out = _chat(settings, build_system_prompt(settings, app_type, before, text), f"<dictation>\n{text}\n</dictation>",
+                    limit, budget=limit + 0.3 * words)
     except Exception as e:  # optional step: any failure (timeout, Ollama restarting, bad reply) keeps the text
         log.warning("AI cleanup skipped: %s", e)
         return text
-    out = out.removeprefix("<dictation>").removesuffix("</dictation>").strip()
+    out = _plain(out.removeprefix("<dictation>").removesuffix("</dictation>").strip(), text)
     # Guard against the model answering instead of cleaning: a cleaned text
     # should be roughly as long as what was said.
     if not out or len(out) > 2 * len(text) + 40 or len(out) < 0.3 * len(text):
@@ -142,7 +177,47 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
     if not numbers_kept(text, out, exact=medical.enabled(settings)):
         log.warning("AI cleanup output rejected: it changed a number")
         return text
+    if medical.enabled(settings) and adds_route(text, out):
+        log.warning("AI cleanup output rejected: it added a route or how often")
+        return text
     return out
+
+
+def _plain(text: str, said: str) -> str:
+    """Drop markdown the model added: "Continue **nimodipine**" pasted with its asterisks."""
+    if "**" not in said:
+        text = re.sub(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", r"\1", text)
+    if "__" not in said:
+        text = re.sub(r"(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)", r"\1", text)
+    return re.sub(r"[ \t]+\n", "\n", text)  # markdown's line break: spaces at the end of a line
+
+
+# Routes and how often, each with the ways it is said. The AI may shorten one that was said ("by
+# mouth" -> "PO") but never add one: "apixaban 5 milligrams twice a day" came back "5 mg PO BID".
+_ROUTES = [
+    ("by mouth", "orally", "oral", "per os", "po", "p.o."),
+    ("intravenously", "intravenous", "iv", "i.v."),
+    ("intramuscularly", "intramuscular", "im", "i.m."),
+    ("subcutaneously", "subcutaneous", "subcut", "sub q", "sub-q", "subq", "sc", "sq", "s.c."),
+    ("sublingually", "sublingual", "under the tongue", "sl"),
+    ("per rectum", "rectally", "rectal", "pr", "p.r."),
+    ("twice a day", "twice daily", "two times a day", "2 times a day", "bid", "b.i.d."),
+    ("three times a day", "three times daily", "3 times a day", "tid", "t.i.d."),
+    ("four times a day", "four times daily", "4 times a day", "qid", "q.i.d."),
+    ("at bedtime", "at night", "nightly", "every night", "qhs", "hs"),
+    ("as needed", "when needed", "if needed", "as required", "prn", "p.r.n."),
+    ("once a day", "once daily", "every day", "per day", "a day", "daily", "qd", "od"),
+    ("immediately", "right away", "now", "stat"),
+]
+_ROUTE_PATTERNS = [
+    re.compile(r"(?<![\w.])(?:" + "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True)) + r")(?![\w])", re.I)
+    for forms in _ROUTES
+]
+
+
+def adds_route(before: str, after: str) -> bool:
+    """Does `after` give a route or a frequency more often than `before` says one?"""
+    return any(len(p.findall(after)) > len(p.findall(before)) for p in _ROUTE_PATTERNS)
 
 
 # ---- command mode -----------------------------------------------------------
@@ -318,13 +393,25 @@ def ensure_model(settings: dict[str, Any]) -> None:
     log.info("Ollama model %s downloaded", model)
 
 
-def warm_up(settings: dict[str, Any]) -> None:
-    """Load the model into memory so the first dictation isn't slow."""
+def warm_up(settings: dict[str, Any], app_type: str = context.OTHER) -> None:
+    """Load the model and have it read the instructions, so the first dictation isn't slow. Only
+    loading it isn't enough: on a processor, reading the instructions the first time can take
+    longer than the time limit, and that dictation then went without the AI."""
     cfg = settings["ai_cleanup"]
     if not cfg.get("enabled"):
         return
     try:
-        url = cfg["ollama_url"].rstrip("/") + "/api/generate"
-        _post(url, {"model": cfg["model"], "prompt": "", "keep_alive": "30m"}, 60)
+        _chat(settings, build_system_prompt(settings, app_type), "<dictation>\nOK.\n</dictation>", 120, max_words=1)
     except Exception as e:
         log.warning("Could not warm up Ollama model %s: %s", cfg["model"], e)
+
+
+def prewarm(settings: dict[str, Any], app_type: str) -> None:
+    """At the start of a dictation: if Ollama may have let the model go (30 minutes without a
+    dictation), load it again in the background while the speaker is still talking."""
+    global _last_warm_up
+    now = time.monotonic()
+    if not settings["ai_cleanup"].get("enabled") or now - _last_answer < 20 * 60 or now - _last_warm_up < 60:
+        return
+    _last_warm_up = now
+    threading.Thread(target=warm_up, args=(settings, app_type), daemon=True, name="ai-warm-up").start()
