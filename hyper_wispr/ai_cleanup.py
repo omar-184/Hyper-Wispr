@@ -180,6 +180,9 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
     if medical.enabled(settings) and adds_route(text, out):
         log.warning("AI cleanup output rejected: it added a route or how often")
         return text
+    if medical.enabled(settings) and not keeps_meaning(text, out, settings):
+        log.warning("AI cleanup output rejected: it dropped a negation or a medical term")
+        return text
     return out
 
 
@@ -218,6 +221,21 @@ _ROUTE_PATTERNS = [
 def adds_route(before: str, after: str) -> bool:
     """Does `after` give a route or a frequency more often than `before` says one?"""
     return any(len(p.findall(after)) > len(p.findall(before)) for p in _ROUTE_PATTERNS)
+
+
+# Words that turn a finding or an order around: "Metoprolol no longer needed", "denies chest pain".
+_NEGATION = re.compile(r"(?<![\w'’])(?:no|not|never|none|nor|without|cannot|deny|denies|denied|negative|absent)(?![\w'’])"
+                       r"|n['’]t(?!\w)", re.I)
+
+
+def keeps_meaning(before: str, after: str, settings: dict[str, Any]) -> bool:
+    """Does `after` keep every negation of `before`, and every drug name and medical term? The model
+    can drop a sentence or a "no" as easily as a number (measured: it once left out a sentence and
+    wrote one that wasn't said). Spelling is compared by letters, so "non-tender" is "nontender"."""
+    if len(_NEGATION.findall(after)) != len(_NEGATION.findall(before)):
+        return False
+    letters = re.sub(r"[^a-z0-9]", "", after.lower())
+    return all(re.sub(r"[^a-z0-9]", "", term) in letters for term in medical.key_terms(before, settings))
 
 
 # ---- command mode -----------------------------------------------------------

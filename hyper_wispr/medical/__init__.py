@@ -232,12 +232,17 @@ class Lexicon:
         self.terms: dict[str, str] = {}  # lowercase -> as written
         self.source: dict[str, str] = {}  # lowercase -> pack title
         self.aliases: dict[str, str] = {}
+        # Common drugs and your own words, which the AI step must keep even when they're also
+        # everyday words ("heparin", "insulin"); see key_terms().
+        self.drugs: set[str] = set()
         self.packs = list(packs)
         for pack in self.packs:
             for t in pack.terms:
                 if t.lower() not in hidden_l:
                     self.terms.setdefault(t.lower(), t)
                     self.source.setdefault(t.lower(), pack.title)
+                    if pack.id == "core-drugs":
+                        self.drugs.add(t.lower())
             for heard, t in pack.aliases.items():
                 if t.lower() not in hidden_l:
                     self.aliases[heard] = t
@@ -246,6 +251,7 @@ class Lexicon:
             if t:
                 self.terms[t.lower()] = t
                 self.source[t.lower()] = "Your words"
+                self.drugs.add(t.lower())
         # Words of multi-word terms ("fibrillation" of "atrial fibrillation") count as medical words too.
         self.parts: dict[str, str] = {}
         for low, term in self.terms.items():
@@ -509,6 +515,9 @@ _UNIT_PHRASES = [
     (r"degrees? fahrenheit", "°F"),
 ]
 _NUM = r"(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)"
+_JOINED_UNITS = {"ml": "mL", "dl": "dL", "meq": "mEq"}
+_JOINED = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)"
+                     r"(mcg|mEq|meq|mmol|mmHg|mg|kg|mL|ml|dL|dl|mm|cm|ng|g|L)(?!\w)")
 
 
 def _zero(number: str) -> str:
@@ -518,7 +527,7 @@ def _zero(number: str) -> str:
 
 def format_units(text: str) -> str:
     """"25 milligrams" -> "25 mg", "5 micrograms per kilogram per minute" -> "5 mcg/kg/min",
-    "120 over 80" -> "120/80". Numbers keep their value; ".5 mg" gets its leading zero."""
+    "120 over 80" -> "120/80", "2g" -> "2 g". Numbers keep their value; ".5 mg" gets its leading zero."""
     for phrase, unit in _UNIT_PHRASES:
         sep = "" if unit in ("%", "°C", "°F") else " "
         text = re.sub(rf"({_NUM})\s*(?:{phrase})\b", lambda m, u=unit, s=sep: _zero(m.group(1)) + s + u, text, flags=re.IGNORECASE)
@@ -537,6 +546,9 @@ def format_units(text: str) -> str:
         return _zero(m.group(1)) + " " + "/".join([unit_of(first)] + [unit_of(p) for p in pers])
 
     text = rate.sub(repl, text)
+    # "25mg" -> "25 mg": a dose run into its unit is on ISMP's list of error-prone abbreviations (the
+    # "m" is read as a zero, 10mg as 100 mg). Only written units, so "4G" and "q4h" stay as they are.
+    text = _JOINED.sub(lambda m: _zero(m.group(1)) + " " + _JOINED_UNITS.get(m.group(2), m.group(2)), text)
     # Blood pressure: "BP 120 over 80" (only after "BP" or "pressure", or before "mmHg").
     bp = re.compile(r"(?i)(\b(?:BP|B\.P\.|pressures?)\b[^.\n\d]{0,20}|)\b(\d{2,3}) over (\d{2,3})\b(?=(\s*mmHg)?)")
     return bp.sub(lambda m: m.group(0) if not (m.group(1) or m.group(4)) else m.group(1) + m.group(2) + "/" + m.group(3), text)
@@ -596,6 +608,18 @@ def ai_terms(text: str, settings: dict[str, Any], limit: int = 30) -> list[str]:
         if len(found) >= limit:
             break
     return found[:limit]
+
+
+def key_terms(text: str, settings: dict[str, Any]) -> list[str]:
+    """The medical words of this dictation that the AI step must keep: drug names, your own words,
+    and terms that aren't everyday English ("hepatosplenomegaly", not "pressure")."""
+    lex = lexicon(settings)
+    found: list[str] = []
+    for t in _TOKEN.finditer(text):
+        low = t.group().lower()
+        if len(low) >= 4 and low in lex.terms and low not in found and (low in lex.drugs or not _is_english(low)):
+            found.append(low)
+    return found
 
 
 def lookup(query: str, settings: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:

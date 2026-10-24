@@ -164,6 +164,11 @@ def test_switches_for_each_fix():
     ("albumin 3.5 grams per deciliter", "albumin 3.5 g/dL"),
     ("75 milligrams per square meter", "75 mg/m²"),
     ("12.5 milligrams and 1,000 milligrams", "12.5 mg and 1,000 mg"),
+    # A dose run into its unit is on ISMP's error-prone list: 10mg is read as 100 mg.
+    ("ceftriaxone 2g daily", "ceftriaxone 2 g daily"),
+    ("metoprolol 25mg and 1,000mg", "metoprolol 25 mg and 1,000 mg"),
+    ("5mg/kg/min, 100ml/h, 20meq, 120mmHg", "5 mg/kg/min, 100 mL/h, 20 mEq, 120 mmHg"),
+    ("give .5mg", "give 0.5 mg"),
 ])
 def test_units_are_written_the_standard_way(heard, written):
     assert medical.format_units(heard) == written
@@ -171,9 +176,16 @@ def test_units_are_written_the_standard_way(heard, written):
 
 @pytest.mark.parametrize("text", [
     "for 2 hours", "every 4 hours", "wait 10 minutes", "a few milligrams", "100 over 50 years", "grams of protein",
+    "4G network", "G2P1", "vitamin B12", "q4h", "COVID-19", "3D scan", "2nd dose", "x2",
 ])
 def test_durations_and_ordinary_phrases_keep_their_words(text):
     assert medical.format_units(text) == text
+
+
+def test_the_medical_words_the_ai_must_keep():
+    text = "Hold heparin tonight. No hepatosplenomegaly. Blood pressure is fine, see the Qassim note."
+    assert medical.key_terms(text, settings()) == ["heparin", "hepatosplenomegaly"]
+    assert medical.key_terms(text, settings(custom_terms=["Qassim"])) == ["heparin", "hepatosplenomegaly", "qassim"]
 
 
 def test_dotted_abbreviations():

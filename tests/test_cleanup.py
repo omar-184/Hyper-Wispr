@@ -181,6 +181,26 @@ def test_ai_never_adds_a_route_or_how_often(monkeypatch):
     assert not ai_cleanup.adds_route("I'm seeing the PR interval", "I'm seeing the PR interval.")
 
 
+def test_ai_never_drops_a_negation_or_a_drug(monkeypatch):
+    """The number check doesn't see a lost "no" or a swapped drug; measured with qwen2.5:3b, the model
+    once left out a sentence of a dictation and wrote one that wasn't said."""
+    s = config.merge(config.DEFAULTS, {})
+    for said, answer in [
+        ("Metoprolol no longer needed. Levetiracetam no change.", "Metoprolol needed. Levetiracetam no change."),
+        ("Patient denies chest pain today.", "Patient has chest pain today."),
+        ("Start hydralazine 10 mg IV now.", "Start hydroxyzine 10 mg IV now."),
+        ("Please hold heparin tonight, thanks.", "Please hold tonight, thanks."),
+        ("No hepatosplenomegaly on exam today.", "No splenomegaly on exam today."),
+    ]:
+        monkeypatch.setattr(ai_cleanup, "_post", lambda *a, answer=answer, **k: {"message": {"content": answer}})
+        assert ai_cleanup.refine(said, s, context.DOCUMENT) == said
+    # Rewording that keeps them is fine.
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "He does not smoke. Abdomen non-tender."}})
+    assert ai_cleanup.refine("he doesn't smoke, abdomen nontender", s, context.DOCUMENT) == "He does not smoke. Abdomen non-tender."
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Start apixaban 5 mg twice a day."}})
+    assert ai_cleanup.refine("start a pyxibon 5 mg twice a day", s, context.DOCUMENT) == "Start apixaban 5 mg twice a day."
+
+
 def test_markdown_the_ai_adds_is_removed(monkeypatch):
     """Measured with qwen2.5:3b: drug names came back in **bold** with markdown line breaks."""
     s = config.merge(config.DEFAULTS, {})
