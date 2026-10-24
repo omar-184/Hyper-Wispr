@@ -35,9 +35,7 @@ def main() -> None:
 
     if args.settings or args.settings_self_test:
         # Runs next to the tray app, so it must not take the single-instance lock below.
-        from .settings_ui import run
-
-        sys.exit(run(self_test=args.settings_self_test))
+        sys.exit(open_settings_window(self_test=args.settings_self_test))
 
     if args.transcribe:
         from .app import process_text
@@ -51,9 +49,9 @@ def main() -> None:
         return
 
     if not acquire_single_instance():
-        logging.info("Another copy is already running; exiting")
-        already_running_message()
-        return
+        # Starting it again from the Start menu or desktop means "show me Hyper-Wispr".
+        logging.info("Already running; showing the Settings window instead")
+        sys.exit(open_settings_window())
 
     from .app import App
 
@@ -77,19 +75,15 @@ def acquire_single_instance() -> bool:
     return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
 
 
-def already_running_message() -> None:
-    if sys.platform != "win32":
-        return
-    import ctypes
+def open_settings_window(self_test: bool = False) -> int:
+    try:
+        from .settings_ui import run
 
-    MB_ICONINFORMATION = 0x40
-    ctypes.windll.user32.MessageBoxW(
-        None,
-        "Hyper-Wispr is already running. Look for the round microphone icon in the system tray "
-        "(bottom right of the screen, possibly under the ^ arrow).",
-        "Hyper-Wispr",
-        MB_ICONINFORMATION,
-    )
+        return run(self_test=self_test)
+    except Exception:
+        # Without a console the traceback would vanish; the tray app reads the exit code.
+        logging.exception("The Settings window failed")
+        return 1
 
 
 def self_test() -> int:

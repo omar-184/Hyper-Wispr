@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version number, e.g. 0.1.0"
+        description: "Version number, e.g. 0.3.0"
         default: "0.0.0-test"
       publish:
         description: "Publish a GitHub Release (creates tag v<version>)"
@@ -46,6 +46,11 @@ jobs:
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp version
+        shell: bash
+        # So the About page and --version show the version being released.
+        run: sed -i -E 's/^__version__ = ".*"/__version__ = "${{ steps.v.outputs.version }}"/' hyper_wispr/__init__.py
 
       - name: Install dependencies
         shell: bash

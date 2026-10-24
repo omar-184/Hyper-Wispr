@@ -39,6 +39,10 @@ CloseApplications=force
 Name: "startup"; Description: "Start Hyper-Wispr automatically when I log in"; GroupDescription: "Options:"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Options:"; Flags: unchecked
 
+[InstallDelete]
+; Libraries from the previous version: left in place, old and new copies of a package can mix.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "..\dist\Hyper-Wispr\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -57,3 +61,13 @@ Type: files; Name: "{userstartup}\Hyper-Wispr.lnk"
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM Hyper-Wispr.exe /F"; Flags: runhidden; RunOnceId: "StopApp"
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  { The history can hold patient information, so offer to remove it rather than leave it behind. }
+  if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
+    if MsgBox('Also delete your Hyper-Wispr settings and dictation history from this PC?',
+              mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DelTree(ExpandConstant('{userappdata}\HyperWispr'), True, True, True);
+end;

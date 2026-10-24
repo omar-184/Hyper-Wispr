@@ -104,3 +104,72 @@ def test_reset():
     press(m, "ctrl_l", "cmd")
     m.reset()
     assert m.state == IDLE
+
+
+def make_with_keyboard(physically_down):
+    """A machine that can ask "the keyboard" which keys are really down, like on Windows."""
+    events, clock = [], Clock()
+    m = HotkeyStateMachine(
+        ["ctrl_l", "cmd"],
+        0.35,
+        on_start=lambda: events.append("start"),
+        on_stop=lambda: events.append("stop"),
+        on_cancel=lambda: events.append("cancel"),
+        clock=clock,
+        is_down=lambda name: name in physically_down,
+        on_combo=lambda: events.append("combo"),
+    )
+    return m, events, clock
+
+
+def test_stuck_win_key_does_not_turn_ctrl_into_the_shortcut():
+    down = set()
+    m, ev, _ = make_with_keyboard(down)
+    down.add("cmd")
+    press(m, "cmd")
+    press(m, "l")  # Win+L locks the screen; Windows never sends the key-ups
+    down.clear()
+    down.add("ctrl_l")
+    press(m, "ctrl_l")  # later, Ctrl+C
+    assert ev == [] and m.state == IDLE
+    assert m.pressed == {"ctrl_l"}
+
+
+def test_missed_release_while_holding_finishes_the_dictation():
+    down = {"ctrl_l", "cmd"}
+    m, ev, clock = make_with_keyboard(down)
+    press(m, "ctrl_l", "cmd")
+    assert ev == ["combo", "start"] and m.state == HOLDING
+    clock.t = 5.0
+    down.clear()  # let go while an administrator window had the focus
+    press(m, "a")
+    assert ev == ["combo", "start", "stop"] and m.state == IDLE
+
+
+def test_held_keys_are_not_dropped_while_holding():
+    down = {"ctrl_l", "cmd"}
+    m, ev, _ = make_with_keyboard(down)
+    press(m, "ctrl_l", "cmd")
+    down.add("space")
+    press(m, "space")
+    assert ev == ["combo", "start"] and m.state == HOLDING
+
+
+def test_combo_callback_fires_for_start_and_hands_free_stop():
+    down = {"ctrl_l", "cmd"}
+    m, ev, clock = make_with_keyboard(down)
+    press(m, "ctrl_l", "cmd")
+    clock.t = 0.1
+    release(m, "cmd", "ctrl_l")  # tap: hands-free
+    clock.t = 5.0
+    press(m, "ctrl_l", "cmd")  # stop: Win is down again, so the Start menu needs masking again
+    assert ev == ["combo", "start", "combo", "stop"]
+
+
+def test_which_shortcuts_need_the_menu_mask():
+    from hyper_wispr.hotkeys import uses_menu_key
+
+    assert uses_menu_key(["ctrl_l", "cmd"])
+    assert uses_menu_key(["alt_gr", "space"])
+    assert not uses_menu_key(["ctrl_l", "shift"])
+    assert not uses_menu_key(["f8"])

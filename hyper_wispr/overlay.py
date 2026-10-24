@@ -243,8 +243,12 @@ class _Win32Pill:
         mon = self.user32.MonitorFromWindow(self.user32.GetForegroundWindow(), 2)  # DEFAULTTONEAREST
         info = self.MONITORINFO()
         info.cbSize = self.ct.sizeof(self.MONITORINFO)
-        self.user32.GetMonitorInfoW(mon, self.ct.byref(info))
-        r = info.rcWork
+        if mon and self.user32.GetMonitorInfoW(mon, self.ct.byref(info)):
+            r = info.rcWork
+        else:
+            # No foreground window (e.g. the desktop has focus): the main screen's work area.
+            r = self.wt.RECT()
+            self.user32.SystemParametersInfoW(0x0030, 0, self.ct.byref(r), 0)  # SPI_GETWORKAREA
         scale = 1.0
         try:
             shcore = self.ct.WinDLL("shcore")
@@ -274,8 +278,10 @@ class _Win32Pill:
         screen = self.user32.GetDC(None)
         mem = self.gdi32.CreateCompatibleDC(screen)
         bits = ct.c_void_p()
-        bmp = self.gdi32.CreateDIBSection(mem, ct.byref(bih), 0, ct.byref(bits), None, 0)
+        bmp = self.gdi32.CreateDIBSection(mem, ct.byref(bih), 0, ct.byref(bits), None, 0) if mem else None
         try:
+            if not bmp or not bits:
+                return  # out of graphics memory: skip this frame rather than write through a null pointer
             ct.memmove(bits, bgra.tobytes(), w * h * 4)
             old = self.gdi32.SelectObject(mem, bmp)
             pos, size, src = wt.POINT(x, y), wt.SIZE(w, h), wt.POINT(0, 0)
@@ -283,8 +289,10 @@ class _Win32Pill:
             self.user32.UpdateLayeredWindow(self.hwnd, screen, ct.byref(pos), ct.byref(size), mem, ct.byref(src), 0, ct.byref(blend), 2)
             self.gdi32.SelectObject(mem, old)
         finally:
-            self.gdi32.DeleteObject(bmp)
-            self.gdi32.DeleteDC(mem)
+            if bmp:
+                self.gdi32.DeleteObject(bmp)
+            if mem:
+                self.gdi32.DeleteDC(mem)
             self.user32.ReleaseDC(None, screen)
 
     def _pump(self) -> None:

@@ -11,6 +11,8 @@ import copy
 import json
 import os
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +50,8 @@ DEFAULTS: dict[str, Any] = {
     },
     "cleanup": {
         "remove_fillers": True,
-        "filler_words": ["um", "uh", "erm", "er", "ah", "hmm", "mm", "uhm"],
+        # Only sounds that are never real words: "er" would delete "ER" and "mm" would delete millimetres.
+        "filler_words": ["um", "umm", "uh", "uhh", "uhm", "erm", "ehm", "ah", "hmm", "hm", "mmm"],
         # Spoken commands like "new line", "new paragraph", "period".
         "spoken_punctuation": True,
         # "scratch that" deletes the sentence before it; "I mean"/"actually" corrections are left to the AI step.
@@ -107,19 +110,105 @@ def merge(defaults: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Filler list shipped up to v0.2. Files that still have exactly this list get the safer one above.
+_OLD_FILLER_WORDS = ["um", "uh", "erm", "er", "ah", "hmm", "mm", "uhm"]
+# Keys earlier versions wrote that no longer do anything.
+_OBSOLETE_KEYS = ("hands_free_extra_key",)
+
+
+def migrate(settings: dict[str, Any]) -> dict[str, Any]:
+    """Update settings written by older versions (in place) and return them."""
+    for key in _OBSOLETE_KEYS:
+        settings.pop(key, None)
+    cleanup = settings.get("cleanup")
+    if isinstance(cleanup, dict) and cleanup.get("filler_words") == _OLD_FILLER_WORDS:
+        cleanup["filler_words"] = list(DEFAULTS["cleanup"]["filler_words"])
+    return settings
+
+
 def load(path: Path | None = None) -> dict[str, Any]:
+    """Raises ValueError if the file isn't valid settings JSON (e.g. a typo from editing it by hand)."""
     path = path or settings_path()
     if not path.exists():
         save(DEFAULTS, path)
         return copy.deepcopy(DEFAULTS)
-    with path.open(encoding="utf-8") as f:
-        return merge(DEFAULTS, json.load(f))
+    # utf-8-sig: Notepad can save with a byte-order mark, which plain utf-8 JSON parsing rejects.
+    with path.open(encoding="utf-8-sig") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("settings.json must contain a JSON object")
+    return migrate(merge(DEFAULTS, data))
+
+
+def recover(path: Path | None = None) -> Path:
+    """Move an unreadable settings file aside and start again from the defaults. Returns the backup."""
+    path = path or settings_path()
+    backup = path.with_name("settings.broken.json")
+    _replace(path, backup)
+    save(DEFAULTS, path)
+    return backup
+
+
+def update(changes: dict[str, Any], path: Path | None = None) -> dict[str, Any]:
+    """Apply {"section.key": value} changes to the file as it is now, so settings changed elsewhere
+    meanwhile (the tray menu, a hand edit, another window) are kept. Returns the saved settings."""
+    path = path or settings_path()
+    try:
+        settings = load(path)
+    except ValueError:
+        recover(path)  # unreadable file: keep it as settings.broken.json and start from the defaults
+        settings = copy.deepcopy(DEFAULTS)
+    for dotted, value in changes.items():
+        *parents, last = dotted.split(".")
+        node = settings
+        for key in parents:
+            if not isinstance(node.get(key), dict):
+                node[key] = {}
+            node = node[key]
+        node[last] = value
+    save(settings, path)
+    return settings
+
+
+# Settings whose keys are the user's own words: changed as a whole, never key by key.
+_WHOLE_VALUES = {"replacements", "snippets"}
+
+
+def diff(base: dict[str, Any], new: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """{"section.key": value} for everything that differs between two versions, for update()."""
+    changes: dict[str, Any] = {}
+    for key, value in new.items():
+        path = prefix + key
+        old = base.get(key) if isinstance(base, dict) else None
+        if isinstance(value, dict) and isinstance(old, dict) and path not in _WHOLE_VALUES:
+            changes.update(diff(old, value, path + "."))
+        elif value != old or (isinstance(base, dict) and key not in base):
+            changes[path] = value
+    return changes
 
 
 def save(settings: dict[str, Any], path: Path | None = None) -> None:
     path = path or settings_path()
-    # Write a temp file and swap it in, so the running app never reads half a file.
-    tmp = path.with_suffix(".json.tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+    # Write a temp file and swap it in, so the running app never reads half a file. The temp name is
+    # unique because the tray app and the Settings window can both save at the same moment.
+    fd, tmp = tempfile.mkstemp(prefix="settings.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        _replace(Path(tmp), path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _replace(src: Path, dst: Path) -> None:
+    # On Windows the swap fails while another process (the other Hyper-Wispr window, an antivirus
+    # scan) has the file open for a moment, so try again briefly before giving up.
+    for attempt in range(20):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)

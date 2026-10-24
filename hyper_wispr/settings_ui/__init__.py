@@ -26,6 +26,11 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
 STARTUP_LINK = "Hyper-Wispr.lnk"
+WINDOW_TITLE = "Hyper-Wispr Settings"
+# Held while a Settings window is open, so a second one brings the first to the front instead.
+WINDOW_MUTEX = "Local\\HyperWisprSettingsWindow"
+# Held while the window records a new shortcut, so the tray app doesn't start dictating meanwhile.
+CAPTURE_MUTEX = "Local\\HyperWisprShortcutCapture"
 _NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
 
 
@@ -43,6 +48,7 @@ class Api:
         self._mic_stream = None
         self._mic_level = 0.0
         self._mic_lock = threading.Lock()
+        self._capture = None
 
     # ---- settings --------------------------------------------------------
     def get_state(self) -> dict[str, Any]:
@@ -52,7 +58,7 @@ class Api:
         except (OSError, ValueError) as e:
             # A hand-edited file with a typo: show defaults instead of crashing, and say so.
             log.warning("settings.json could not be read: %s", e)
-            settings, error = copy.deepcopy(config.DEFAULTS), f"Your settings file could not be read ({e}). Showing defaults; changing anything will overwrite it."
+            settings, error = copy.deepcopy(config.DEFAULTS), f"Your settings file could not be read ({e}). Showing the defaults. Changing anything starts a new file; the old one is kept as settings.broken.json."
         return {
             "settings": settings,
             "defaults": config.DEFAULTS,
@@ -64,9 +70,14 @@ class Api:
             "load_error": error,
         }
 
-    def save_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def save_settings(self, settings: dict[str, Any], base: dict[str, Any] | None = None) -> dict[str, Any]:
+        """base: the settings as the window last loaded or saved them. Only what changed since is
+        written, so a change made meanwhile (the tray menu's AI cleanup switch) isn't undone."""
         try:
-            config.save(config.merge(config.DEFAULTS, settings))
+            if base is None:
+                config.save(config.merge(config.DEFAULTS, settings))
+            elif changes := config.diff(base, settings):
+                config.update(changes)
             return {"ok": True}
         except Exception as e:  # shown in the window's status line
             log.exception("Saving settings failed")
@@ -201,12 +212,29 @@ class Api:
 
     def copy_text(self, text: str) -> bool:
         try:
-            import pyperclip
+            from ..paste import copy as copy_to_clipboard
 
-            pyperclip.copy(text)
+            copy_to_clipboard(text)  # kept out of clipboard history, like dictations
             return True
         except Exception:
+            log.exception("Copying failed")
             return False
+
+    # ---- shortcut recorder -------------------------------------------------
+    def begin_shortcut_capture(self) -> None:
+        if self._capture is None:
+            self._capture = _create_mutex(CAPTURE_MUTEX)[0]
+
+    def end_shortcut_capture(self) -> None:
+        handle, self._capture = self._capture, None
+        _close(handle)
+
+    def mask_menu_key(self) -> None:
+        """Win or Alt went down in the recorder: stop the Start menu (or menu bar) opening on release."""
+        if sys.platform == "win32":
+            from ..hotkeys import mask_menu_key
+
+            mask_menu_key()
 
     # ---- files & start at login -----------------------------------------
     def open_data_folder(self) -> None:
@@ -267,6 +295,71 @@ def _open(path: Path) -> None:
         subprocess.Popen(["xdg-open" if sys.platform.startswith("linux") else "open", str(path)])
 
 
+def _kernel32():
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.OpenMutexW.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel32.OpenMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def _create_mutex(name: str) -> tuple[int | None, bool]:
+    """(handle, whether it already existed). The handle closes with the process."""
+    if sys.platform != "win32":
+        return None, False
+    import ctypes
+
+    handle = _kernel32().CreateMutexW(None, False, name)
+    ERROR_ALREADY_EXISTS = 183
+    return handle, ctypes.get_last_error() == ERROR_ALREADY_EXISTS
+
+
+def _close(handle: int | None) -> None:
+    if handle:
+        _kernel32().CloseHandle(handle)
+
+
+def shortcut_capture_active() -> bool:
+    """Is a Settings window recording a new shortcut right now?"""
+    if sys.platform != "win32":
+        return False
+    SYNCHRONIZE = 0x00100000
+    handle = _kernel32().OpenMutexW(SYNCHRONIZE, False, CAPTURE_MUTEX)
+    _close(handle)
+    return bool(handle)
+
+
+def focus_window(wait: float = 0.0) -> bool:
+    """Bring an open Settings window to the front. False when there is none (after `wait` seconds)."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32")
+    user32.FindWindowW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
+    user32.FindWindowW.restype = wintypes.HWND
+    for fn in (user32.IsIconic, user32.SetForegroundWindow):
+        fn.argtypes, fn.restype = (wintypes.HWND,), wintypes.BOOL
+    user32.ShowWindow.argtypes, user32.ShowWindow.restype = (wintypes.HWND, ctypes.c_int), wintypes.BOOL
+    deadline = time.monotonic() + wait
+    while not (hwnd := user32.FindWindowW(None, WINDOW_TITLE)):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)  # the other window is still starting up
+    SW_RESTORE = 9
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    user32.SetForegroundWindow(hwnd)
+    return True
+
+
 def _windows_dark_mode() -> bool:
     if sys.platform != "win32":
         return False
@@ -286,11 +379,17 @@ def run(self_test: bool = False) -> int:
     Python, then closes itself; the exit code says whether that worked. The
     installer build runs this so a broken WebView2 bundle fails in CI.
     """
+    if not self_test:
+        _lock, already_open = _create_mutex(WINDOW_MUTEX)  # held until this window closes
+        if already_open:
+            focus_window(wait=5.0)
+            return 0
+
     import webview
 
     api = Api()
     window = webview.create_window(
-        "Hyper-Wispr Settings",
+        WINDOW_TITLE,
         url=(WEB_DIR / "index.html").as_uri(),
         js_api=api,
         width=920,
@@ -315,5 +414,6 @@ def run(self_test: bool = False) -> int:
         window.destroy()
 
     window.events.closed += api.stop_mic_test
+    window.events.closed += api.end_shortcut_capture
     webview.start(check if self_test else None)
     return 0 if result["ok"] else 1

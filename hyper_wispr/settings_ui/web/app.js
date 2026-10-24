@@ -6,6 +6,9 @@
 
 const S = {
   settings: null,
+  // settings.json as this window last loaded or saved it. Saves send only what changed since,
+  // so a change made meanwhile from the tray menu (AI cleanup on/off) isn't undone.
+  saved: null,
   defaults: null,
   info: null,
   page: "general",
@@ -83,7 +86,9 @@ async function saveNow() {
   clearTimeout(saveTimer);
   if (!savePending) return;
   savePending = false;
-  const res = await api().save_settings(S.settings);
+  const sent = structuredClone(S.settings);
+  const res = await api().save_settings(sent, S.saved);
+  if (res && res.ok) S.saved = sent;
   setStatus(res && res.ok ? "saved" : "error", res && res.error);
 }
 // Text fields save as you type; make sure the last keystrokes land before the window goes away.
@@ -338,10 +343,13 @@ function shortcutRow() {
       h("span", { class: "rec-text" }, "Press and hold the keys you want, then let go. Esc cancels."));
     wrap.replaceChildren(h("div", { class: "row-label" }, "Push-to-talk shortcut"), box);
     box.focus();
+    // While recording, the tray app ignores the current shortcut instead of starting to dictate.
+    api().begin_shortcut_capture();
     const done = (error) => {
       window.removeEventListener("keydown", down, true);
       window.removeEventListener("keyup", up, true);
       window.removeEventListener("blur", cancel);
+      api().end_shortcut_capture();
       show(error);
     };
     const cancel = () => done();
@@ -351,6 +359,8 @@ function shortcutRow() {
       if (e.key === "Escape") return done();
       const k = keyFromEvent(e);
       if (!k) return;
+      // Letting go of Win (or Alt) on its own would open the Start menu and take the focus away.
+      if ((k === "cmd" || k === "alt") && !held.has(k)) api().mask_menu_key();
       held.add(k);
       if (held.size >= best.length) best = sortKeys(held);
       box.querySelector(".rec-text").replaceChildren(keysView(best));
@@ -375,11 +385,6 @@ function shortcutRow() {
 }
 
 function handsFreeText() {
-  if (has("hands_free_extra_key")) {
-    const k = get("hands_free_extra_key");
-    return k ? `Hold to talk and let go to paste. For long dictation, also tap ${keyLabel(k)} while holding, then press the shortcut again to finish. Esc cancels.`
-      : "Hold to talk and let go to paste. Esc cancels.";
-  }
   return "Hold to talk and let go to paste. Tap it quickly instead to dictate hands-free, and tap again to finish. Esc cancels.";
 }
 
@@ -503,7 +508,7 @@ function generalPage() {
       row("Sounds", "A short tone when recording starts and stops.", toggle("audio.sounds")),
       row("Insert text by", "Pasting is instant and works almost everywhere. Typing is slower but works in apps that block pasting.",
         segmented("paste.method", [{ value: "clipboard", label: "Pasting" }, { value: "type", label: "Typing" }], () => render())),
-      get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation.", toggle("paste.restore_clipboard")),
+      get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation (except in Remote Desktop or Citrix, where that could paste the old contents).", toggle("paste.restore_clipboard")),
       row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
     ]),
     section("On-screen indicator", [
@@ -746,7 +751,10 @@ function aboutPage() {
           savePending = false;
           const st = await api().reset_settings();
           S.settings = st.settings;
+          S.saved = structuredClone(st.settings);
+          S.info = st; // clears a "settings file could not be read" warning
           setStatus("saved");
+          render();
         }))),
     ]),
     h("p", { class: "section-note" }, h("button", { class: "link", type: "button", onclick: () => api().open_url("https://github.com/omar-184/Hyper-Wispr") }, "Hyper-Wispr on GitHub")),
@@ -796,6 +804,7 @@ async function refreshOllama() {
 async function init() {
   const st = await api().get_state();
   S.settings = st.settings;
+  S.saved = structuredClone(st.settings);
   S.defaults = st.defaults;
   S.info = st;
   try { const p = localStorage.getItem("hw-page"); if (RENDER[p]) S.page = p; } catch (e) { /* ignore */ }

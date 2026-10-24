@@ -13,6 +13,7 @@ decides what happened; the app runs the slow work (opening the mic, transcribing
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from typing import Callable
 
@@ -52,11 +53,17 @@ class HotkeyStateMachine:
         on_stop: Callable[[], None],
         on_cancel: Callable[[], None],
         clock: Callable[[], float] = time.monotonic,
+        is_down: Callable[[str], bool | None] = lambda _name: None,
+        on_combo: Callable[[], None] = lambda: None,
     ):
         self.combo = combo
         self.tap_seconds = tap_seconds
         self.on_start, self.on_stop, self.on_cancel = on_start, on_stop, on_cancel
+        # Called every time the whole combination goes down, whatever happens next.
+        self.on_combo = on_combo
         self.clock = clock
+        # Asks the keyboard whether a key is physically down (None = can't tell); see listen().
+        self.is_down = is_down
         self.pressed: set[str] = set()
         self.state = IDLE
         self._down_at = 0.0
@@ -71,16 +78,31 @@ class HotkeyStateMachine:
         """Back to idle without callbacks (e.g. the app refused to start recording)."""
         self.state = IDLE
 
+    def _forget_released(self, current: str) -> None:
+        """Drop keys whose key-up never arrived. Windows doesn't send it when the screen locks
+        (Win+L) or an administrator window has focus, and a "stuck" Win key would otherwise make
+        every Ctrl press (Ctrl+C, Ctrl+V...) start a dictation."""
+        for name in list(self.pressed):
+            if name != current and self.is_down(name) is False:
+                self.pressed.discard(name)
+
     def key_down(self, name: str) -> None:
+        self._forget_released(name)
+        if self.state == HOLDING and not self._combo_down():
+            # The keys went up while Windows hid it from us: finish as if we had seen it.
+            self.state = IDLE
+            self.on_stop()
         if name in self.pressed:  # auto-repeat
             return
         self.pressed.add(name)
         if name == "esc" and self.state in (HOLDING, HANDS_FREE):
             self.state = IDLE
             self.on_cancel()
-        elif not self._in_combo(name) or not self._combo_down():
             return
-        elif self.state in (IDLE, STOPPING):  # STOPPING here means a key-up was missed
+        if not self._in_combo(name) or not self._combo_down():
+            return
+        self.on_combo()
+        if self.state in (IDLE, STOPPING):  # STOPPING here means a key-up was missed
             self.state = HOLDING
             self._down_at = self.clock()
             self.on_start()
@@ -119,6 +141,9 @@ def listen(machine: HotkeyStateMachine):
     """Start the global keyboard listener in a background thread and return it."""
     from pynput import keyboard
 
+    if sys.platform == "win32":
+        machine.is_down = _win_is_down
+
     def safe(fn):
         def handler(key):
             try:
@@ -132,3 +157,89 @@ def listen(machine: HotkeyStateMachine):
     listener.daemon = True
     listener.start()
     return listener
+
+
+# ---- asking Windows which keys are really down ------------------------------
+
+_user32 = None
+_vk_cache: dict[str, int | None] = {}
+# Shift, Ctrl, Alt, left and right Windows key.
+_MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)
+
+
+def _win_user32():
+    global _user32
+    if _user32 is None:
+        import ctypes
+
+        user32 = ctypes.WinDLL("user32")
+        user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        user32.VkKeyScanW.argtypes = (ctypes.c_wchar,)
+        user32.VkKeyScanW.restype = ctypes.c_short
+        _user32 = user32
+    return _user32
+
+
+def _vk(name: str) -> int | None:
+    """pynput key name ("ctrl_l", "cmd", "a", "vk186") -> Windows virtual-key code."""
+    if name not in _vk_cache:
+        vk = None
+        try:
+            from pynput.keyboard import Key
+
+            member = Key.__members__.get(name)
+            if member is not None:
+                vk = member.value.vk
+            elif name.startswith("vk") and name[2:].isdigit():
+                vk = int(name[2:])
+            elif len(name) == 1:
+                code = _win_user32().VkKeyScanW(name)
+                vk = code & 0xFF if code != -1 else None
+        except Exception:
+            vk = None
+        _vk_cache[name] = vk
+    return _vk_cache[name]
+
+
+def _win_is_down(name: str) -> bool | None:
+    vk = _vk(name)
+    if vk is None:
+        return None
+    return bool(_win_user32().GetAsyncKeyState(vk) & 0x8000)
+
+
+def uses_menu_key(combo: list[str]) -> bool:
+    """Does the combination include Win or Alt, which open the Start menu or a menu bar when let go?"""
+    return any(k.startswith(("cmd", "alt")) for k in combo)
+
+
+_controller = None
+
+
+def mask_menu_key() -> None:
+    """Press and release a key that does nothing (vkE8, "unassigned") while Win/Alt are down.
+
+    Windows opens the Start menu when Win goes down and up with nothing typed in between, and Alt
+    on its own selects the menu bar. Either takes the focus away from the app we're about to paste
+    into. Ctrl is usually pressed before Win, so Ctrl+Win alone would still open Start. This is
+    the same trick as AutoHotkey's "menu mask key"."""
+    from pynput.keyboard import Controller, KeyCode
+
+    global _controller
+    if _controller is None:
+        _controller = Controller()
+    key = KeyCode.from_vk(0xE8)
+    _controller.press(key)
+    _controller.release(key)
+
+
+def modifiers_held(machine: HotkeyStateMachine) -> bool:
+    """Is Ctrl, Alt, Shift or Win still held? Pasting then would send the wrong shortcut."""
+    if sys.platform == "win32":
+        try:
+            user32 = _win_user32()
+            return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS)
+        except Exception:
+            pass
+    return bool(machine.pressed)

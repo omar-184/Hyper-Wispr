@@ -46,6 +46,9 @@ class Recorder:
         self._chunks: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._stream = None
+        # The microphone actually in use: the default one when the chosen one is unplugged.
+        self.device = self.cfg.get("input_device")
+        self.fell_back = False
 
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ARG002
         with self._lock:
@@ -56,28 +59,46 @@ class Recorder:
             samplerate=rate, channels=1, dtype="float32", device=device, callback=self._callback
         )
 
+    def _start(self, device) -> None:
+        try:
+            stream = self._open(device, TARGET_RATE)
+            rate = TARGET_RATE
+        except Exception as e:
+            # Some drivers only accept their native rate; record at that and resample.
+            rate = int(self._sd.query_devices(device, "input")["default_samplerate"])
+            log.info("Microphone refused 16 kHz (%s); recording at %d Hz", e, rate)
+            stream = self._open(device, rate)
+        try:
+            stream.start()
+        except Exception:
+            stream.close()  # or the half-open device stays locked until the app quits
+            raise
+        self._stream, self._device_rate, self.device = stream, rate, device
+
     def start(self) -> None:
         with self._lock:
             self._chunks = []
-        device = self.cfg.get("input_device")
+        wanted = self.cfg.get("input_device")
+        self.fell_back = False
         try:
-            self._stream = self._open(device, TARGET_RATE)
-            self._device_rate = TARGET_RATE
-        except Exception as e:
-            # Some drivers only accept their native rate; record at that and resample.
-            native = int(self._sd.query_devices(device, "input")["default_samplerate"])
-            log.info("Microphone refused 16 kHz (%s); recording at %d Hz", e, native)
-            self._stream = self._open(device, native)
-            self._device_rate = native
-        self._stream.start()
+            self._start(wanted)
+        except Exception:
+            if wanted is None:
+                raise
+            # The chosen microphone is unplugged or in use: the Windows default beats no dictation.
+            log.warning("Couldn't open the microphone '%s'; using the default one", wanted, exc_info=True)
+            self._start(None)
+            self.fell_back = True
 
     def stop(self) -> np.ndarray:
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            finally:
-                self._stream = None
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            # A driver error here must not lose the recording (or leave the app stuck "listening").
+            for step in (stream.stop, stream.close):
+                try:
+                    step()
+                except Exception:
+                    log.warning("Closing the microphone failed", exc_info=True)
         with self._lock:
             chunks, self._chunks = self._chunks, []
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
@@ -91,7 +112,7 @@ class Recorder:
 
     def device_name(self) -> str:
         try:
-            info = self._sd.query_devices(self.cfg.get("input_device"), "input")
+            info = self._sd.query_devices(self.device, "input")
             return str(info["name"])
         except Exception as e:
             return f"unknown ({e})"
