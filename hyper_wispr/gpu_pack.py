@@ -37,7 +37,6 @@ _DLL = re.compile(r"^nvidia/[^/]+/bin/[^/]+\.dll$", re.IGNORECASE)
 # Loaded first, by full path, so ctranslate2 finds them already in memory.
 _PRELOAD = ["cublasLt64_12.dll", "cublas64_12.dll", "cudnn64_9.dll"]
 
-MIN_COMPUTE = (5, 3)  # float16, which CTranslate2 needs to use the card instead of float32
 MIN_MEMORY = 1_900_000_000  # a "2 GB" card reports a little under 2^31 bytes
 MIN_DRIVER = 12000  # CUDA 12
 
@@ -80,9 +79,16 @@ def nvidia_cards() -> list[dict[str, Any]]:
         return []
 
 
+def fast_enough(compute: tuple[int, int]) -> bool:
+    """Can CTranslate2 run int8 or float16 on a card of this compute capability? int8 needs 6.1
+    (GTX 10-series, MX150) and float16 7.0 or newer; any other card only gets float32, which is
+    what speech.usable_gpu() turns down, so downloading the files for it would be wasted."""
+    return tuple(compute) == (6, 1) or tuple(compute) >= (7, 0)
+
+
 def why_not(card: dict[str, Any]) -> str:
     """Empty if the card can run the speech model; otherwise the reason, in plain words."""
-    if tuple(card["compute"]) < MIN_COMPUTE:
+    if not fast_enough(card["compute"]):
         return "too old to run the speech model (it can only do float32)"
     if card["memory"] < MIN_MEMORY:
         return "doesn't have enough graphics memory (needs 2 GB)"
@@ -202,13 +208,16 @@ def _install(m: dict[str, Any], progress) -> None:
     total = sum(int(w.get("size") or 0) for w in wheels)
     base = root()
     base.mkdir(parents=True, exist_ok=True)
+    keep = {Path(str(w["url"])).name + ".part" for w in wheels}
+    for old in base.iterdir():
+        if old.is_dir() and old.name != m["id"]:  # files for an older CUDA version
+            shutil.rmtree(old, ignore_errors=True)
+        elif old.is_file() and old.suffix == ".part" and old.name not in keep:
+            old.unlink(missing_ok=True)  # a download an older version of the app didn't finish
     # Room for one wheel and everything unpacked so far, with some to spare.
     need = total * 2 + 500_000_000
     if shutil.disk_usage(base).free < need:
         raise OSError(f"not enough free disk space (needs about {need / 1e9:.1f} GB on {base.anchor})")
-    for old in base.iterdir():  # files for an older CUDA version, or a half-finished unpack
-        if old.name != m["id"] and old.is_dir():
-            shutil.rmtree(old, ignore_errors=True)
     target = base / m["id"]
     target.mkdir(exist_ok=True)
     done_before = 0
@@ -268,6 +277,9 @@ def _download(url: str, path: Path, sha256: str, size: int, report) -> None:
                     report(done)
                     last = done
     report(done)
+    if size and done < size:
+        # The connection dropped (urllib then just stops reading): keep what arrived for next time.
+        raise OSError(f"the download stopped at {done / 1e6:.0f} of {size / 1e6:.0f} MB; it continues at the next start")
     if digest.hexdigest() != sha256.lower():
         path.unlink(missing_ok=True)
         raise OSError("the download was damaged (checksum mismatch)")
