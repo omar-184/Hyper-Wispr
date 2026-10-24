@@ -32,7 +32,12 @@ class History:
         self.db = sqlite3.connect(path, check_same_thread=False, timeout=5)
         # Used from the dictation worker, the tray menu and the Settings window; one at a time.
         self.lock = threading.Lock()
+        # Decrypted texts by (id, time), so a search doesn't decrypt every dictation each time
+        # (1.5 s for 3,000 of them on Windows). Only the Settings window searches.
+        self._plain: dict[tuple[int, float], tuple[str, str]] = {}
         try:
+            # What's deleted is overwritten with zeros, so deleted text doesn't linger in the file.
+            self.db.execute("PRAGMA secure_delete = ON")
             self.db.executescript(
                 """CREATE TABLE IF NOT EXISTS history (
                     id INTEGER PRIMARY KEY,
@@ -168,7 +173,10 @@ class History:
         needles = search.lower().split()
         out = []
         for row_id, created, app, app_type, seconds, raw, final, has_audio in rows:
-            text, raw_text = secure.decrypt_text(final), secure.decrypt_text(raw)
+            key = (row_id, created)
+            if key not in self._plain:
+                self._plain[key] = (secure.decrypt_text(final), secure.decrypt_text(raw))
+            text, raw_text = self._plain[key]
             if needles and not all(w in text.lower() or w in raw_text.lower() for w in needles):
                 continue
             out.append({
@@ -201,6 +209,7 @@ class History:
         with self.lock:
             self.db.execute("UPDATE history SET final_text = ? WHERE id = ?", (secure.encrypt_text(final), int(row_id)))
             self.db.commit()
+            self._plain = {k: v for k, v in self._plain.items() if k[0] != int(row_id)}
 
     def delete(self, row_id: int | None = None) -> None:
         """One dictation, or all of them (row_id None)."""
@@ -212,7 +221,9 @@ class History:
                 self.db.execute("DELETE FROM history WHERE id = ?", (int(row_id),))
                 self.db.execute("DELETE FROM recordings WHERE history_id = ?", (int(row_id),))
             self.db.commit()
-            self.db.execute("VACUUM")  # so deleted text doesn't linger in free pages of the file
+            self._plain = {k: v for k, v in self._plain.items() if row_id is not None and k[0] != int(row_id)}
+            if row_id is None:
+                self.db.execute("VACUUM")  # gives the space back; secure_delete has already wiped it
 
     def delete_older_than(self, days: float, now: float | None = None) -> int:
         """Auto-delete: remove dictations older than this many days. Returns how many went."""
@@ -224,7 +235,7 @@ class History:
             self.db.execute("DELETE FROM recordings WHERE created < ? OR history_id NOT IN (SELECT id FROM history)", (cutoff,))
             self.db.commit()
             if n:
-                self.db.execute("VACUUM")
+                self.db.execute("VACUUM")  # gives the space back; secure_delete has already wiped it
         return n
 
     # ---- notes -------------------------------------------------------------

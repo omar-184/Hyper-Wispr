@@ -433,7 +433,8 @@ def bench_history(res: dict, folder: Path) -> None:
         h.add("OUTLOOK.EXE", "email", 6.0, CLIPS["general"], CLIPS["general"], 1.0)
     res["add_text_only_ms"] = round(1000 * (time.perf_counter() - t) / 2700, 2)
     res["rows"] = 3000
-    for label, search in (("recent_200_ms", ""), ("search_ms", "nimodipine"), ("search_none_ms", "zzzz")):
+    for label, search in (("recent_200_ms", ""), ("search_ms", "nimodipine"), ("search_again_ms", "nimodipine hours"),
+                          ("search_none_ms", "zzzz")):
         t = time.perf_counter()
         h.recent(200, search=search)
         res[label] = round(1000 * (time.perf_counter() - t), 1)

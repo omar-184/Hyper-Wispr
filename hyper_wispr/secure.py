@@ -26,7 +26,7 @@ def _blob(data: bytes):
 def _crypt(data: bytes, protect: bool) -> bytes:
     import ctypes
 
-    crypt32 = ctypes.WinDLL("crypt32")
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)  # else get_last_error() below is always 0
     kernel32 = ctypes.WinDLL("kernel32")
     blob_in, _keep, DATA_BLOB = _blob(data)
     blob_out = DATA_BLOB()
