@@ -163,14 +163,32 @@ class HotkeyStateMachine:
             self.state = IDLE
 
 
+# Scan codes of the letter, digit and ` keys, named by their place on a US keyboard: the Settings
+# window names a key the same way (by its place, whatever the keyboard layout).
+_SCAN_NAMES = {
+    0x29: "`",
+    **{0x02 + i: c for i, c in enumerate("1234567890")},
+    **{0x10 + i: c for i, c in enumerate("qwertyuiop")},
+    **{0x1E + i: c for i, c in enumerate("asdfghjkl")},
+    **{0x2C + i: c for i, c in enumerate("zxcvbnm")},
+}
+_SCAN_OF = {name: scan for scan, name in _SCAN_NAMES.items()}
+
+
 def _name(key) -> str:
     name = getattr(key, "name", None)
     if name:
         return name
+    # Letters and digits by the key, not the character: with Ctrl or Alt held Windows gives a control
+    # character ("\x1a" for Ctrl+Z) or none at all, so Ctrl+Alt+Z arrived as "vk90" and never matched.
+    scan, vk = getattr(key, "_scan", None), getattr(key, "vk", None)
+    if scan in _SCAN_NAMES:
+        return _SCAN_NAMES[scan]
+    if vk is not None and (0x30 <= vk <= 0x39 or 0x41 <= vk <= 0x5A):
+        return chr(vk).lower()
     char = getattr(key, "char", None)
-    if char:
+    if char and char.isprintable():
         return char.lower()
-    vk = getattr(key, "vk", None)
     return f"vk{vk}" if vk is not None else str(key)
 
 
@@ -214,6 +232,8 @@ def _win_user32():
         user32.GetAsyncKeyState.restype = ctypes.c_short
         user32.VkKeyScanW.argtypes = (ctypes.c_wchar,)
         user32.VkKeyScanW.restype = ctypes.c_short
+        user32.MapVirtualKeyW.argtypes = (ctypes.c_uint, ctypes.c_uint)
+        user32.MapVirtualKeyW.restype = ctypes.c_uint
         _user32 = user32
     return _user32
 
@@ -230,6 +250,8 @@ def _vk(name: str) -> int | None:
                 vk = member.value.vk
             elif name.startswith("vk") and name[2:].isdigit():
                 vk = int(name[2:])
+            elif name in _SCAN_OF:  # the key in that place on this layout
+                vk = _win_user32().MapVirtualKeyW(_SCAN_OF[name], 1) or None
             elif len(name) == 1:
                 code = _win_user32().VkKeyScanW(name)
                 vk = code & 0xFF if code != -1 else None
