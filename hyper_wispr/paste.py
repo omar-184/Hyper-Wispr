@@ -21,6 +21,7 @@ REMOTE_APPS = {
     "mstsc.exe", "msrdc.exe", "wfica32.exe", "cdviewer.exe", "vmware-view.exe", "vmware-remotemks.exe",
     "vmconnect.exe", "anydesk.exe", "teamviewer.exe", "rustdesk.exe", "vncviewer.exe",
 }
+TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "wsl.exe", "mintty.exe", "putty.exe"}
 # How long the app we pasted into gets to read the clipboard before we put the old one back.
 RESTORE_DELAY = 1.0
 
@@ -48,10 +49,11 @@ def _paste_shortcut() -> None:
         kb.tap("v")
 
 
-def insert(text: str, settings: dict[str, Any], app: str = "") -> None:
-    """Type text into the focused window. app: the exe name we're pasting into, if known."""
+def insert(text: str, settings: dict[str, Any], app: str = "", space_after: bool = True) -> None:
+    """Type text into the focused window. app: the exe name we're pasting into, if known.
+    space_after: False when the text around the cursor shows a space would be one too many."""
     cfg = settings["paste"]
-    if cfg.get("add_trailing_space", True) and text and not text.endswith(("\n", " ")):
+    if space_after and cfg.get("add_trailing_space", True) and text and not text.endswith(("\n", " ")):
         text += " "
     if cfg.get("method") == "type":
         _kb().type(text)
@@ -76,6 +78,37 @@ def copy(text: str) -> None:
         import pyperclip
 
         pyperclip.copy(text)
+
+
+def copy_selection(app: str = "") -> str:
+    """The selected text, read by pressing Ctrl+C (for apps UI Automation can't read). The
+    clipboard is put back afterwards. "" when nothing is selected."""
+    if sys.platform != "win32" or app.lower() in TERMINALS:
+        return ""  # in a terminal Ctrl+C stops the running program
+    from pynput.keyboard import Key
+
+    from . import clipboard
+
+    with _lock:
+        try:
+            saved = clipboard.snapshot()
+        except Exception:
+            saved = None
+        before = clipboard.sequence()
+        kb = _kb()
+        with kb.pressed(Key.ctrl):
+            kb.tap("c")
+        deadline = time.time() + 0.6
+        while clipboard.sequence() == before and time.time() < deadline:
+            time.sleep(0.02)
+        copied = clipboard.sequence() != before
+        text = clipboard.get_text() if copied else ""
+        if copied and saved is not None and app.lower() not in REMOTE_APPS:
+            try:
+                clipboard.restore(saved)
+            except Exception:
+                log.warning("Couldn't put the clipboard back", exc_info=True)
+    return text or ""
 
 
 def _insert_windows(text: str, restore: bool) -> None:

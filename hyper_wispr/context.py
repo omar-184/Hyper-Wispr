@@ -52,11 +52,22 @@ _TITLE_TYPES: list[tuple[str, str]] = [
 ]
 
 
+# Window classes of the desktop and the taskbar: nothing to type into. (Not the Start menu,
+# whose search box takes a paste.)
+_SHELL_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
+
+
 @dataclass
 class AppContext:
     process: str = ""
     title: str = ""
     app_type: str = OTHER
+    window_class: str = ""
+
+    @property
+    def is_shell(self) -> bool:
+        """The desktop or the taskbar is in front."""
+        return self.process.lower() == "explorer.exe" and self.window_class in _SHELL_CLASSES
 
 
 def classify(process: str, title: str) -> str:
@@ -69,7 +80,7 @@ def classify(process: str, title: str) -> str:
     return OTHER
 
 
-def _foreground_windows() -> tuple[str, str]:
+def _foreground_windows() -> tuple[str, str, str]:
     import ctypes
     from ctypes import wintypes
 
@@ -80,6 +91,8 @@ def _foreground_windows() -> tuple[str, str]:
     buf = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buf, length + 1)
     title = buf.value
+    cls = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, cls, 256)
 
     pid = wintypes.DWORD()
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -92,12 +105,12 @@ def _foreground_windows() -> tuple[str, str]:
         if kernel32.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
             process = path.value.rsplit("\\", 1)[-1]
         kernel32.CloseHandle(handle)
-    return process, title
+    return process, title, cls.value
 
 
 def current() -> AppContext:
     try:
-        process, title = _foreground_windows() if sys.platform == "win32" else ("", "")
+        process, title, cls = _foreground_windows() if sys.platform == "win32" else ("", "", "")
     except Exception:
-        process, title = "", ""
-    return AppContext(process=process, title=title, app_type=classify(process, title))
+        process, title, cls = "", "", ""
+    return AppContext(process=process, title=title, app_type=classify(process, title), window_class=cls)

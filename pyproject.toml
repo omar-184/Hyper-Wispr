@@ -1,6 +1,6 @@
 [project]
 name = "hyper-wispr"
-version = "0.3.0"
+version = "0.4.0"
 description = "Offline, customizable voice dictation for Windows (Whisper + optional local LLM cleanup)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,9 @@ dependencies = [
     "Pillow>=10",
     # Settings window: shows web/ in Windows' built-in Edge WebView2.
     "pywebview>=5.3",
+    # Reading the text box you dictate into (UI Automation) and muting other apps' sound.
+    "comtypes>=1.4; sys_platform == 'win32'",
+    "pycaw>=20240210; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

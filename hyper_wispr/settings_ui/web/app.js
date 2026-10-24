@@ -56,6 +56,8 @@ const ICONS = {
   trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/>',
   x: '<path d="M7 7l10 10M17 7L7 17"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  notes: '<path d="M6.5 3.5h8l4 4v12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M14 3.5V8h4.5M8.5 12.5h7M8.5 16h5"/>',
+  redo: '<path d="M19 8v4.5h-4.5"/><path d="M18.6 12.4A7 7 0 1 1 17 7.4"/>',
 };
 function icon(name) {
   const span = document.createElement("span");
@@ -484,6 +486,7 @@ function micRows() {
 const PAGES = [
   { id: "home", label: "Dashboard", icon: "home" },
   { id: "history", label: "History", icon: "history" },
+  { id: "notes", label: "Notes", icon: "notes" },
   { id: "general", label: "General", icon: "general", group: "Settings" },
   { id: "speech", label: "Speech", icon: "speech" },
   { id: "ai", label: "AI cleanup", icon: "ai" },
@@ -573,7 +576,16 @@ function homePage() {
   loadRecent();
 
   const stopped = S.status && !S.status.running;
+  const dl = S.status && S.status.status === "loading" && S.status.download;
+  const firstRun = dl ? h("div", { class: "banner info first-run" },
+    h("div", { class: "row-text" },
+      h("div", { class: "row-label" }, "Getting Hyper-Wispr ready"),
+      h("div", { class: "row-desc" }, "The speech model is downloading. This happens once; after that everything works offline."),
+      h("div", { class: "meter progress", role: "progressbar", "aria-label": "Download progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(dl.total ? Math.round((dl.done / dl.total) * 100) : 0) },
+        h("div", { class: "meter-fill", style: `width:${dl.total ? Math.min(100, (dl.done / dl.total) * 100) : 4}%` })),
+      h("div", { class: "row-desc" }, dl.total ? `${formatSize(dl.done)} of ${formatSize(dl.total)}` : `${formatSize(dl.done)} so far`))) : null;
   const statusLine = S.status && S.status.status === "error" ? S.status.error
+    : S.status && S.status.status === "loading" && S.status.download ? ""
     : S.status && S.status.status === "loading" ? "The speech model is loading. The first start downloads it, which can take a few minutes."
       : S.status && S.status.model ? `Speech recognition: ${S.status.model}` : "";
 
@@ -590,6 +602,7 @@ function homePage() {
       h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Hyper-Wispr isn't running"),
         h("div", { class: "row-desc" }, "Dictation is off until it's started again.")),
       h("button", { class: "btn primary", type: "button", onclick: async () => { await api().start_app(); S.status = null; render(); setTimeout(refreshStatus, 1500); } }, "Start Hyper-Wispr")),
+    firstRun,
     upd,
     h("div", { class: "tiles" },
       statTile("Today", formatNumber(st && st.today_words), "words"),
@@ -639,6 +652,17 @@ async function refreshStatus() {
   if (S.page === "home") render();
 }
 
+function commandRows() {
+  const keys = get("push_to_talk_keys") || [];
+  const on = get("command_mode.enabled") !== false;
+  return [
+    row("Command mode", ["Select some text, then hold ", keysView([...keys, get("command_mode.key") || "alt_l"]), " and say what to do, like \"make this shorter\" or \"turn this into a referral letter\". Needs AI cleanup."],
+      toggle("command_mode.enabled", () => render())),
+    on && row("Extra key for commands", null, segmented("command_mode.key", [{ value: "alt_l", label: "Alt" }, { value: "shift", label: "Shift" }], () => render())),
+    row("Paste last dictation", ["Press ", keysView(get("paste_last_keys") || []), " to paste your last dictation again."], null),
+  ];
+}
+
 function generalPage() {
   const startRow = S.info.can_start_at_login ? row("Open at login", "Start Hyper-Wispr in the tray when you sign in to Windows.", (id) => {
     const btn = h("button", { class: "switch", role: "switch", id, type: "button", "aria-checked": "false", "aria-describedby": id + "-d" });
@@ -656,8 +680,13 @@ function generalPage() {
     ...pageHeader("General", "How you start dictating, which microphone is used, and how text is put into your apps."),
     S.info.load_error && h("div", { class: "banner", role: "alert" }, S.info.load_error),
     cols([
-      section("Shortcut", [shortcutRow()]),
-      section("Microphone", micRows()),
+      section("Shortcut", [shortcutRow(), ...commandRows()]),
+      section("Microphone", [
+        ...micRows(),
+        row("Whisper mode", "For speaking quietly, e.g. next to a patient. Picks up much softer speech (and a little more background noise). Also in the tray menu.", toggle("audio.whisper_mode")),
+        row("Keep the microphone ready", "The first word is never cut off. Windows then shows the microphone as in use whenever Hyper-Wispr runs.", toggle("audio.keep_mic_open")),
+        row("Mute music while dictating", "Mutes music and videos while you speak, then brings the sound back. Calls (Teams, Zoom…) are never muted.", toggle("audio.mute_media")),
+      ]),
     ], [
       section("Typing", [
         row("Sounds", "A soft tone when recording starts and stops.", toggle("audio.sounds")),
@@ -665,6 +694,8 @@ function generalPage() {
           segmented("paste.method", [{ value: "clipboard", label: "Pasting" }, { value: "type", label: "Typing" }], () => render())),
         get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation (except in Remote Desktop or Citrix, where that could paste the old contents).", toggle("paste.restore_clipboard")),
         row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
+        row("Fit into the text around the cursor", "Reads the text just before the cursor so a dictation continues your sentence (no capital mid-sentence, the right spacing) and names on screen are spelled the same. Read on this PC only, never saved.", toggle("context_awareness")),
+        row("Learn from my corrections", "When you fix a word right after dictating, Hyper-Wispr offers it for your dictionary (Vocabulary page).", toggle("learn_corrections")),
       ]),
       section("On-screen indicator", [
         row("Show while dictating", "A small \"Listening\" bubble with voice bars appears while recording, then \"Transcribing\" until the text is typed.", toggle("overlay.enabled", () => render())),
@@ -693,23 +724,6 @@ const LANGUAGES = [
   ["fa", "Persian"], ["ur", "Urdu"], ["hi", "Hindi"], ["bn", "Bengali"], ["he", "Hebrew"], ["el", "Greek"],
   ["zh", "Chinese"], ["ja", "Japanese"], ["ko", "Korean"], ["id", "Indonesian"], ["ms", "Malay"], ["sv", "Swedish"],
 ];
-
-function languageToggle(code, name) {
-  // A switch that adds or removes one language from the auto-detect list.
-  return (id) => {
-    const btn = h("button", {
-      class: "switch", role: "switch", id, type: "button", "aria-describedby": id + "-d",
-      "aria-checked": String((get("speech.languages") || []).includes(code)),
-      onclick: () => {
-        const cur = get("speech.languages") || [];
-        const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
-        set("speech.languages", next);
-        render();
-      },
-    });
-    return btn;
-  };
-}
 
 function languagesPicker() {
   // Auto-detect only chooses between these languages, which stops Whisper guessing an unrelated one.
@@ -778,10 +792,21 @@ function languageRows() {
     return [row("Language", "Only this language is recognised.",
       select("speech.language", LANGUAGES.map(([v, l]) => ({ value: v, label: l })).concat([{ value: "", label: "Use my languages list instead" }]), { onChange: () => render() }))];
   }
-  const english = (get("speech.languages") || []).includes("en");
+  const langs = get("speech.languages") || [];
+  const others = langs.filter((c) => c !== "en" && c !== "ar");
+  const choice = others.length ? null : langs.includes("en") && langs.includes("ar") ? "en+ar" : langs.includes("ar") ? "ar" : langs.includes("en") ? "en" : null;
+  const pick = (v) => {
+    set("speech.languages", { en: ["en"], ar: ["ar"], "en+ar": ["en", "ar"] }[v]);
+    render();
+  };
   return [
-    row("English", english ? languageSummary() : "Turn on if you dictate in English.", languageToggle("en", "English")),
-    row("Also Arabic", "Turn on if you sometimes dictate in Arabic. Each dictation is then recognised as English or Arabic.", languageToggle("ar", "Arabic")),
+    row("I dictate in", choice ? { en: "Always English.", ar: "Always Arabic.", "en+ar": "Each dictation is recognised as English or Arabic." }[choice] : languageSummary(), (id) => {
+      const group = h("div", { class: "segmented", role: "radiogroup", id, "aria-labelledby": id + "-l" });
+      [["en", "English"], ["en+ar", "English + Arabic"], ["ar", "Arabic"]].forEach(([v, label]) => group.append(h("button", {
+        type: "button", role: "radio", "aria-checked": String(choice === v), onclick: () => pick(v),
+      }, label)));
+      return group;
+    }),
     h("details", { class: "more", open: S.moreLanguages || (get("speech.languages") || []).some((c) => c !== "en" && c !== "ar") ? true : null,
       ontoggle: (e) => { S.moreLanguages = e.target.open; } },
       h("summary", {}, "Other languages"), languagesPicker()),
@@ -792,6 +817,9 @@ function advanced(rows) {
   return h("section", { class: "section" }, h("div", { class: "card" },
     h("details", { class: "more" }, h("summary", {}, "Advanced"), ...rows)));
 }
+
+const STYLE_APPS = [["email", "Email"], ["message", "Chat and messages"], ["document", "Documents"], ["ai_chat", "AI assistants"], ["code", "Code editors"], ["other", "Everything else"]];
+const TONE_OPTIONS = [{ value: "formal", label: "Formal" }, { value: "casual", label: "Casual" }, { value: "very_casual", label: "Very casual" }];
 
 function aiPage() {
   const enabled = !!get("ai_cleanup.enabled");
@@ -818,6 +846,8 @@ function aiPage() {
           h("div", { class: "row-control" }, pill, h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
         row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
       ]),
+      section("Writing style", STYLE_APPS.map(([app, label]) => row(label, null, segmented(`ai_cleanup.styles.${app}`, TONE_OPTIONS))),
+        "How your text should sound in each kind of app. Very casual writes like a quick text: no capital at the start, no final full stop. Without AI cleanup only that part (and dropping the full stop of a one-line chat message) applies."),
       advanced([
         row("Skip AI for short phrases", "Dictations with fewer words than this are pasted without the AI step, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
         row("Time limit (seconds)", "If the AI takes longer, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
@@ -837,12 +867,42 @@ function aiPage() {
   ];
 }
 
+function suggestionsSection() {
+  const card = h("div", { class: "card" });
+  const wrap = h("section", { class: "section", hidden: true }, h("h2", { class: "section-title" }, "Words you corrected"), card,
+    h("p", { class: "section-note" }, "You fixed these right after a dictation. Add them so they're spelled your way next time."));
+  const load = async () => {
+    const items = await api().get_suggestions();
+    wrap.hidden = !items.length;
+    card.replaceChildren(...items.map((it) => h("div", { class: "row" },
+      h("div", { class: "row-text" }, h("div", { class: "row-label" }, it.word),
+        h("div", { class: "row-desc" }, `Heard as "${it.heard}"` + (it.count > 1 ? `, corrected ${it.count} times` : ""))),
+      h("div", { class: "row-control" },
+        h("button", { class: "btn small", type: "button", onclick: async () => { await api().answer_suggestion(it.word, false); load(); } }, "Not now"),
+        h("button", { class: "btn small primary", type: "button", onclick: async () => {
+          await api().answer_suggestion(it.word, true);
+          // Saved by Python already; keep this window's copy in step so it isn't saved back without it.
+          const words = get("dictionary") || [];
+          if (!words.some((w) => w.toLowerCase() === it.word.toLowerCase())) {
+            S.settings.dictionary = [...words, it.word];
+            S.saved.dictionary = [...S.settings.dictionary];
+          }
+          render();
+        } }, "Add to dictionary")))));
+  };
+  load();
+  return wrap;
+}
+
 function vocabPage() {
   return [
     ...pageHeader("Vocabulary", "Teach Hyper-Wispr the words you use and the shortcuts you want."),
+    suggestionsSection(),
     cols([
       section("Dictionary", [chipList("dictionary", "Add a word, e.g. a colleague's name or a drug")],
         "Spelled exactly like this. Separate several with commas."),
+      section("Starred words", [chipList("dictionary_starred", "Add a word that matters most")],
+        "The speech model only takes a limited number of words as hints; these always go in. Use it for the names and drugs you say most."),
       section("Replacements", [pairList("replacements", "When you say", "Write", { leftPlaceholder: "hyper wisper", rightPlaceholder: "Hyper-Wispr" })],
         "Always swaps the left side for the right side, ignoring capitals."),
       section("Snippets", [pairList("snippets", "Say this on its own", "To insert", { multiline: true, leftPlaceholder: "my signature", rightPlaceholder: "Dr. …\nClinic …" })],
@@ -859,7 +919,7 @@ function vocabPage() {
   ];
 }
 
-function historyItem(it, onDelete) {
+function historyItem(it, onDelete, onRedo) {
   const when = new Date(it.created * 1000);
   const copyBtn = h("button", { class: "icon-btn", type: "button", title: "Copy", "aria-label": "Copy text" }, icon("copy"));
   copyBtn.addEventListener("click", async () => {
@@ -874,28 +934,112 @@ function historyItem(it, onDelete) {
       h("div", { class: "history-meta" }, [when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), it.app && it.app !== "unknown" ? it.app.replace(/\.exe$/i, "") : null, it.seconds ? `${it.seconds.toFixed(1)} s` : null].filter(Boolean).join(" · ")),
       h("div", { class: "history-text" }, it.text || h("span", { class: "empty" }, "(nothing was pasted)"))),
     h("div", { class: "history-actions" }, copyBtn,
+      it.can_redo && onRedo && h("button", { class: "icon-btn", type: "button", title: "Redo with a bigger speech model", "aria-label": "Redo this dictation with a bigger speech model",
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          btn.classList.add("busy");
+          historyNote("Redoing the dictation… The first time loads the bigger speech model, which can take a minute.");
+          const res = await api().redo_dictation(it.id);
+          btn.disabled = false;
+          btn.classList.remove("busy");
+          historyNote(res.ok ? "Redone. Use Copy to paste the new version." : "Couldn't redo it: " + res.error);
+          if (res.ok) onRedo();
+        } }, icon("redo")),
       h("button", { class: "icon-btn", type: "button", title: "Delete", "aria-label": "Delete this dictation", onclick: async () => { await api().delete_history(it.id); onDelete(); } }, icon("trash"))));
+}
+
+function historyNote(text) {
+  const el = document.getElementById("history-note");
+  if (el) el.textContent = text;
 }
 
 function historyPage() {
   const list = h("div", { class: "card" }, h("div", { class: "row" }, h("span", { class: "empty" }, "Loading…")));
   const load = async () => {
-    const items = await api().get_history(200);
+    const q = S.historySearch || "";
+    const items = await api().get_history(200, q);
     if (!items.length) {
-      list.replaceChildren(h("div", { class: "row" }, h("span", { class: "empty" }, "No dictations yet. Hold your shortcut and speak to make one.")));
+      list.replaceChildren(h("div", { class: "row" }, h("span", { class: "empty" }, q ? "No dictations contain those words." : "No dictations yet. Hold your shortcut and speak to make one.")));
       return;
     }
-    list.replaceChildren(...items.map((it) => historyItem(it, load)));
+    list.replaceChildren(...items.map((it) => historyItem(it, load, load)));
   };
   load();
+  let searchTimer = null;
+  const search = h("input", { type: "search", class: "grow", placeholder: "Search your dictations", "aria-label": "Search your dictations", value: S.historySearch || "",
+    oninput: (e) => { S.historySearch = e.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(load, 250); } });
+  const days = get("history.keep_days") || 0;
   return [
-    ...pageHeader("History", "Your recent dictations, stored only on this computer."),
+    ...pageHeader("History", "Your recent dictations, stored only on this computer and encrypted so only your Windows account can read them."),
     section(null, [
       row("Keep history", "Turn off to stop saving new dictations.", toggle("history.enabled")),
+      row("Delete dictations after", days ? "Older dictations are deleted automatically. Your usage totals on the dashboard are kept." : "Dictations are kept until you delete them.",
+        select("history.keep_days", [{ value: 7, label: "1 week" }, { value: 30, label: "30 days" }, { value: 90, label: "90 days" }, { value: 365, label: "1 year" }, { value: 0, label: "Never" }], { toValue: Number, onChange: () => render() })),
+      row("Keep recordings for Redo", "The last few recordings are kept (encrypted) so a dictation can be redone with a bigger, more accurate speech model.",
+        select("history.keep_recordings", [{ value: 20, label: "Last 20" }, { value: 5, label: "Last 5" }, { value: 0, label: "None" }], { toValue: Number })),
       h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Delete all history")),
         h("div", { class: "row-control" }, confirmButton("Delete all…", "Delete every saved dictation?", "Delete all", async () => { await api().delete_history(null); load(); }))),
     ]),
-    h("section", { class: "section" }, h("h2", { class: "section-title" }, "Recent"), list),
+    h("section", { class: "section" }, h("h2", { class: "section-title" }, "Recent"),
+      h("div", { class: "search-bar" }, search), h("p", { class: "section-note", id: "history-note", "aria-live": "polite" }), list),
+  ];
+}
+
+/* ---- notes --------------------------------------------------------------- */
+function notesPage() {
+  const listEl = h("div", { class: "card notes-list" });
+  const editor = h("textarea", { class: "note-editor", "aria-label": "Note", placeholder: "Click here and dictate, or type. Notes save as you go." });
+  const meta = h("div", { class: "row-desc", "aria-live": "polite" });
+  let saveTimer = null;
+  const current = () => (S.notes || []).find((n) => n.id === S.noteId);
+  const paintList = () => {
+    const notes = S.notes || [];
+    listEl.replaceChildren(...(notes.length ? notes.map((n) => h("button", {
+      type: "button", class: "note-item", "aria-current": n.id === S.noteId ? "true" : null, onclick: () => open(n.id),
+    }, h("span", { class: "note-title" }, (n.body.trim().split("\n")[0] || "Empty note").slice(0, 60)),
+      h("span", { class: "row-desc" }, new Date(n.updated * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))))
+      : [h("div", { class: "row" }, h("span", { class: "empty" }, "No notes yet."))]));
+  };
+  const open = (id) => {
+    clearTimeout(saveTimer);
+    S.noteId = id;
+    const n = current();
+    editor.value = n ? n.body : "";
+    meta.textContent = n ? "Saved" : "";
+    paintList();
+  };
+  const save = async () => {
+    const res = await api().save_note(editor.value, S.noteId ?? null);
+    if (!res.ok) { meta.textContent = "Couldn't save: " + res.error; return; }
+    S.noteId = res.id;
+    S.notes = await api().get_notes();
+    meta.textContent = "Saved";
+    paintList();
+  };
+  editor.addEventListener("input", () => { meta.textContent = "Saving…"; clearTimeout(saveTimer); saveTimer = setTimeout(save, 600); });
+  const load = async () => {
+    S.notes = await api().get_notes();
+    if (S.noteId == null && S.notes.length) S.noteId = S.notes[0].id;
+    open(S.noteId);
+  };
+  load();
+  return [
+    ...pageHeader("Notes", "A notepad for things that don't belong in another app yet: ward lists, reminders, drafts. Click into a note and dictate. Stored only on this computer, encrypted."),
+    h("div", { class: "notes" },
+      h("div", { class: "notes-side" },
+        h("button", { class: "btn primary with-icon", type: "button", onclick: () => { open(null); editor.focus(); } }, icon("plus"), "New note"),
+        listEl),
+      h("div", { class: "card notes-main" },
+        editor,
+        h("div", { class: "notes-foot" }, meta,
+          h("div", { class: "row-control" },
+            h("button", { class: "btn", type: "button", onclick: () => api().copy_text(editor.value) }, "Copy all"),
+            confirmButton("Delete…", "Delete this note?", "Delete", async () => {
+              if (S.noteId != null) await api().delete_note(S.noteId);
+              S.noteId = null;
+              load();
+            }))))),
   ];
 }
 
@@ -1020,7 +1164,7 @@ function aboutPage() {
   ];
 }
 
-const RENDER = { home: homePage, general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, about: aboutPage };
+const RENDER = { home: homePage, general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, notes: notesPage, about: aboutPage };
 
 /* ---- navigation ---------------------------------------------------------- */
 function renderNav() {
@@ -1096,8 +1240,8 @@ async function init() {
 }
 
 document.addEventListener("keydown", (e) => {
-  // Ctrl+1..7 jumps between sections.
-  if (e.ctrlKey && !e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
+  // Ctrl+1..8 jumps between sections.
+  if (e.ctrlKey && !e.altKey && /^[1-8]$/.test(e.key)) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
 });
 
 if (window.pywebview && window.pywebview.api && window.pywebview.api.get_state) init();

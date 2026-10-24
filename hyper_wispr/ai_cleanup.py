@@ -39,6 +39,12 @@ STYLE = {
     context.OTHER: "",
 }
 
+TONES = {
+    "formal": "Tone: formal and professional. Full sentences, proper capitalization and punctuation.",
+    "casual": "Tone: casual and friendly, as the speaker said it. Normal capitalization; contractions are fine.",
+    "very_casual": "Tone: very casual, like a quick text message. Lowercase is fine and a final period isn't needed.",
+}
+
 MEDICAL_RULES = """Medical writing rules:
 - Spell drug names, conditions, procedures and anatomy correctly.
 - Keep every number, dose, unit, frequency and route exactly as spoken (e.g. "5 mg PO BID").
@@ -47,15 +53,34 @@ MEDICAL_RULES = """Medical writing rules:
 - Keep standard clinical abbreviations (BP, HR, CBC, MRI, PRN, etc.)."""
 
 
-def build_system_prompt(settings: dict[str, Any], app_type: str) -> str:
+def style_for(settings: dict[str, Any], app_type: str) -> str:
+    styles = settings["ai_cleanup"].get("styles") or {}
+    return styles.get(app_type) or styles.get(context.OTHER) or "formal"
+
+
+def dictionary_words(settings: dict[str, Any]) -> list[str]:
+    """Starred words first, then the rest, without repeats."""
+    words = list(settings.get("dictionary_starred", [])) + list(settings.get("dictionary", []))
+    seen: set[str] = set()
+    return [w for w in words if w.strip() and not (w.lower() in seen or seen.add(w.lower()))]
+
+
+def build_system_prompt(settings: dict[str, Any], app_type: str, before: str = "") -> str:
     cfg = settings["ai_cleanup"]
     parts = [BASE_PROMPT]
     if STYLE.get(app_type):
         parts.append(STYLE[app_type])
+    parts.append(TONES.get(style_for(settings, app_type), TONES["formal"]))
     if cfg.get("medical_mode"):
         parts.append(MEDICAL_RULES)
-    if settings.get("dictionary"):
-        parts.append("Spell these words exactly like this: " + ", ".join(settings["dictionary"]))
+    if words := dictionary_words(settings):
+        parts.append("Spell these words exactly like this: " + ", ".join(words))
+    if before.strip():
+        parts.append(
+            "The dictation will be inserted right after the text below, which is already on the screen. Continue it "
+            "naturally (no capital letter mid-sentence) and spell any names and terms the way they appear there. "
+            "Return only the new text, never the text below.\n<before>\n" + before[-600:] + "\n</before>"
+        )
     if cfg.get("extra_instructions"):
         parts.append(cfg["extra_instructions"])
     return "\n\n".join(parts)
@@ -78,23 +103,25 @@ def is_available(settings: dict[str, Any]) -> bool:
         return False
 
 
-def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
+def _chat(settings: dict[str, Any], system: str, user: str, timeout: float) -> str:
     cfg = settings["ai_cleanup"]
-    if not cfg.get("enabled") or len(text.split()) < cfg.get("min_words", 0):
-        return text
     payload = {
         "model": cfg["model"],
         "stream": False,
         "keep_alive": "30m",
         "options": {"temperature": 0},
-        "messages": [
-            {"role": "system", "content": build_system_prompt(settings, app_type)},
-            {"role": "user", "content": f"<dictation>\n{text}\n</dictation>"},
-        ],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
+    url = cfg["ollama_url"].rstrip("/") + "/api/chat"
+    return _post(url, payload, timeout)["message"]["content"].strip()
+
+
+def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "") -> str:
+    cfg = settings["ai_cleanup"]
+    if not cfg.get("enabled") or len(text.split()) < cfg.get("min_words", 0):
+        return text
     try:
-        url = cfg["ollama_url"].rstrip("/") + "/api/chat"
-        out = _post(url, payload, cfg.get("timeout_seconds", 8))["message"]["content"].strip()
+        out = _chat(settings, build_system_prompt(settings, app_type, before), f"<dictation>\n{text}\n</dictation>", cfg.get("timeout_seconds", 8))
     except Exception as e:  # optional step: any failure (timeout, Ollama restarting, bad reply) keeps the text
         log.warning("AI cleanup skipped: %s", e)
         return text
@@ -109,6 +136,50 @@ def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
     if not numbers_kept(text, out, exact=bool(cfg.get("medical_mode"))):
         log.warning("AI cleanup output rejected: it changed a number")
         return text
+    return out
+
+
+# ---- command mode -----------------------------------------------------------
+
+COMMAND_PROMPT = """You edit text for the user. You get a piece of text they selected and a spoken instruction.
+
+Rules:
+- Apply the instruction to the selected text and return ONLY the new text that replaces the selection.
+- No preamble, no quotes, no explanations, no markdown code fences.
+- Keep the language of the selected text unless the instruction asks otherwise.
+- Do not add facts that are not in the selected text or the instruction."""
+
+COMMAND_MEDICAL = """Medical text rules:
+- Never change, invent or add a number, dose, unit, frequency, route, lab value or date.
+- Keep drug names, diagnoses and clinical abbreviations exactly as in the selected text."""
+
+
+class CommandError(Exception):
+    """Command mode couldn't produce a result; the message is shown to the user."""
+
+
+def command(instruction: str, selected: str, settings: dict[str, Any]) -> str:
+    """Rewrite `selected` the way the spoken `instruction` says."""
+    cfg = settings["ai_cleanup"]
+    system = COMMAND_PROMPT
+    if cfg.get("medical_mode"):
+        system += "\n\n" + COMMAND_MEDICAL
+    if cfg.get("extra_instructions"):
+        system += "\n\n" + cfg["extra_instructions"]
+    user = f"<instruction>\n{instruction}\n</instruction>\n<selected>\n{selected}\n</selected>"
+    try:
+        out = _chat(settings, system, user, max(30, cfg.get("timeout_seconds", 8) * 4))
+    except Exception as e:
+        log.warning("Command mode failed: %s", e)
+        raise CommandError("The AI model didn't answer. Check that Ollama is running (Settings → AI cleanup).") from e
+    out = re.sub(r"^```\w*\n|\n```$", "", out).strip()
+    out = out.removeprefix("<selected>").removesuffix("</selected>").strip()
+    if not out:
+        raise CommandError("The AI model returned nothing. Try saying the instruction differently.")
+    # A rewrite may drop numbers ("make this shorter") but must never invent or change one.
+    if cfg.get("medical_mode") and not numbers_kept(selected + " " + instruction, out, exact=False):
+        log.warning("Command mode result rejected: it changed a number")
+        raise CommandError("The rewrite changed a number or dose, so it wasn't pasted. Your text is unchanged.")
     return out
 
 

@@ -22,6 +22,12 @@ DEFAULTS: dict[str, Any] = {
     "push_to_talk_keys": ["ctrl_l", "cmd"],
     # Tap the push-to-talk keys (shorter than this) to start hands-free mode; tap again to stop.
     "hands_free_tap_seconds": 0.35,
+    # Command mode: select some text, hold the push-to-talk keys plus this key, and say what to
+    # do with it ("make this shorter", "turn this into a bulleted list"). Needs AI cleanup.
+    "command_mode": {"enabled": True, "key": "alt_l"},
+    # Pastes your last dictation again wherever the cursor is. (Not Alt+Shift: that switches
+    # the keyboard language when Arabic is installed.)
+    "paste_last_keys": ["ctrl_l", "alt_l", "z"],
     "speech": {
         # "auto" picks large-v3-turbo on an NVIDIA GPU and "small" on CPU.
         # Other options: tiny, base, small, medium, large-v3, large-v3-turbo, distil-large-v3,
@@ -47,6 +53,13 @@ DEFAULTS: dict[str, Any] = {
         "silence_threshold": 0.003,
         "max_seconds": 360,
         "sounds": True,
+        # For speaking quietly (next to a patient, in an open office): picks up much softer speech.
+        "whisper_mode": False,
+        # Mute music and videos while dictating (never calls), and unmute them afterwards.
+        "mute_media": True,
+        # Keep the microphone open all the time, so the first word is never cut off. Windows then
+        # shows the microphone as in use whenever Hyper-Wispr is running.
+        "keep_mic_open": False,
     },
     "cleanup": {
         "remove_fillers": True,
@@ -68,9 +81,18 @@ DEFAULTS: dict[str, Any] = {
         # Adds medical-writing rules: keep drug names, doses, units and abbreviations exact.
         "medical_mode": True,
         "extra_instructions": "",
+        # Tone per kind of app: "formal", "casual" or "very_casual".
+        "styles": {"email": "formal", "message": "casual", "document": "formal", "ai_chat": "casual", "code": "formal", "other": "formal"},
     },
+    # Read the text around the cursor so a dictation continues your sentence (capitals, spacing)
+    # and the AI can spell names already on screen. Read locally, never stored or logged.
+    "context_awareness": True,
+    # Offer words you correct after a dictation for the dictionary.
+    "learn_corrections": True,
     # Words Whisper should spell your way: names, drugs, jargon.
     "dictionary": [],
+    # Dictionary words that matter most: always given to the speech model first.
+    "dictionary_starred": [],
     # Always replace the left side with the right side after transcription (case-insensitive).
     "replacements": {},
     # Say the trigger phrase on its own and the expansion is pasted instead.
@@ -81,7 +103,14 @@ DEFAULTS: dict[str, Any] = {
         "restore_clipboard": True,
         "add_trailing_space": True,
     },
-    "history": {"enabled": True, "keep_audio": False},
+    "history": {
+        "enabled": True,
+        # Delete dictations older than this many days (0 = keep them all).
+        "keep_days": 30,
+        # Keep the recordings of the last few dictations so they can be redone with a bigger model.
+        "keep_recordings": 20,
+        "redo_model": "large-v3-turbo",
+    },
     # The floating "Listening…" pill while you dictate. position: "bottom" or "top" of the screen.
     "overlay": {"enabled": True, "position": "bottom"},
     # Look for a newer version on GitHub (at most once a day, when the window opens).
@@ -122,6 +151,8 @@ def migrate(settings: dict[str, Any]) -> dict[str, Any]:
     """Update settings written by older versions (in place) and return them."""
     for key in _OBSOLETE_KEYS:
         settings.pop(key, None)
+    if isinstance(settings.get("history"), dict):
+        settings["history"].pop("keep_audio", None)  # never did anything; recordings are keep_recordings
     cleanup = settings.get("cleanup")
     if isinstance(cleanup, dict) and cleanup.get("filler_words") == _OLD_FILLER_WORDS:
         cleanup["filler_words"] = list(DEFAULTS["cleanup"]["filler_words"])

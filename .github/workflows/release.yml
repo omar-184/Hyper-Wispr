@@ -57,6 +57,8 @@ jobs:
         run: |
           if [ "${{ matrix.variant }}" = "GPU" ]; then pip install ".[gpu]"; else pip install .; fi
           pip install "pyinstaller>=6.10"
+          # Generate the UI Automation wrapper now, so it's bundled instead of written at run time.
+          python -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll'); import comtypes.gen.UIAutomationClient"
 
       - name: Build app
         shell: bash

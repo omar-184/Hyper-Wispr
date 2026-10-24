@@ -41,6 +41,9 @@ Download the code (green **Code** button → **Download ZIP**), unzip it, double
 | Press **Esc** while listening | Cancel, nothing is pasted |
 | Say "new line", "new paragraph", "comma", "period", "question mark" | Inserts that punctuation |
 | Say "scratch that" | Deletes the sentence you just said |
+| Select text, hold **Ctrl + Win + Alt**, say e.g. "make this shorter" | Command mode: the selected text is rewritten as you asked (needs AI cleanup) |
+| Press **Ctrl + Alt + Z** | Pastes your last dictation again |
+| Tray icon → **Whisper mode** | Picks up speech spoken quietly, e.g. next to a patient |
 | Tray icon → **Copy last dictation** | Puts your previous dictation on the clipboard; paste it with Ctrl+V |
 | Start Hyper-Wispr (Start menu or desktop) | Opens the Hyper-Wispr window; closing it keeps dictation running in the tray |
 
@@ -51,11 +54,17 @@ Click the tray icon (or right-click → **Open Hyper-Wispr**) to open the window
 - **Dashboard**: whether it's ready, words dictated today and this week, time saved, speaking speed,
   the last 14 days, recent dictations and quick switches.
 
-- **General**: change the shortcut by pressing the keys you want, pick and test your microphone, sounds, paste or type.
-- **Speech**: speech model, English with optional Arabic (or other languages), GPU or processor.
-- **AI cleanup**: turn the Ollama step on or off, medical mode, which model, your own extra instructions.
-- **Vocabulary**: dictionary words, replacements, snippets, filler words.
-- **History**: your recent dictations with a copy button.
+- **History**: search your dictations, copy one, or redo it with a bigger speech model. Encrypted with your
+  Windows account and deleted automatically after 30 days (you can change that).
+- **Notes**: a notepad inside the app; click into a note and dictate.
+- **General**: change the shortcut by pressing the keys you want, command mode, pick and test your microphone,
+  whisper mode, keep the microphone ready, mute music while dictating, paste or type, fit dictations into the
+  text around the cursor, learn from your corrections.
+- **Speech**: speech model, English, English + Arabic or Arabic (or other languages), GPU or processor.
+- **AI cleanup**: turn the Ollama step on or off, medical mode, which model, a writing style (formal, casual, very
+  casual) for each kind of app, your own extra instructions.
+- **Vocabulary**: words you corrected (offered for the dictionary), dictionary and starred words, replacements,
+  snippets, filler words.
 - **About & updates**: checks GitHub for a newer version (once a day, can be turned off), downloads the
   right installer for your PC and installs it in place. Settings, history and the speech model are kept.
 
@@ -79,6 +88,7 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
 ```
 
 - **dictionary**: names and terms you want spelled your way. They are given to Whisper as hints and to the AI step.
+  **dictionary_starred** words always go first (Whisper only takes a limited number of hints).
 - **replacements**: always change the left side into the right side.
 - **snippets**: say the trigger phrase on its own and the full text is pasted.
 - **speech.model**: `auto` picks `large-v3-turbo` with an NVIDIA GPU and `small` on CPU. Bigger = more accurate but slower:
@@ -112,5 +122,7 @@ installers as a GitHub Release.
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
 `speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
-`paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history), `app.py` (tray app tying it together), `updates.py` (update check and install), `settings_ui/` (the window:
+`paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history),
+`uia.py` (reading the text box you dictate into), `learn.py` (learning corrected words), `media.py` (muting music),
+`history.py` and `secure.py` (encrypted history and notes), `app.py` (tray app tying it together), `updates.py` (update check and install), `settings_ui/` (the window:
 a pywebview page in `web/`, run as a separate process with `--settings`).
