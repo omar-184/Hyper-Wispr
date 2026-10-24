@@ -157,8 +157,8 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
     words = len(text.split())
     if not cfg.get("enabled") or words < cfg.get("min_words", 0):
         return text
-    # The time limit is for the AI to start; then it writes about 10 words a second on a processor,
-    # so a long dictation gets the time to finish instead of waiting out the limit for nothing.
+    # The time limit is for the AI to start; then it writes 4 to 7 words a second on a 4-thread processor
+    # (measured), so a long dictation gets the time to finish instead of waiting out the limit for nothing.
     limit = cfg.get("timeout_seconds", 8)
     try:
         out = _chat(settings, build_system_prompt(settings, app_type, before, text), f"<dictation>\n{text}\n</dictation>",
@@ -181,7 +181,7 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
         log.warning("AI cleanup output rejected: it added a route or how often")
         return text
     if medical.enabled(settings) and not keeps_meaning(text, out, settings):
-        log.warning("AI cleanup output rejected: it dropped a negation or a medical term")
+        log.warning("AI cleanup output rejected: it dropped a negation, a medical term or a sentence")
         return text
     return out
 
@@ -228,14 +228,30 @@ _NEGATION = re.compile(r"(?<![\w'’])(?:no|not|never|none|nor|without|cannot|de
                        r"|n['’]t(?!\w)", re.I)
 
 
+# Words a cleanup may drop or reword without losing anything: "number one, start aspirin" -> "1. Start aspirin".
+_FILLER_WORDS = set(
+    "the and but for nor yet with from into onto over then than that this these those there their they them was were "
+    "are has have had been will would could should can may might must does did its his her our your you she him who "
+    "which what when where how also just only very some any all each both number one two three four five six seven "
+    "eight nine ten first second third next".split()
+)
+
+
 def keeps_meaning(before: str, after: str, settings: dict[str, Any]) -> bool:
-    """Does `after` keep every negation of `before`, and every drug name and medical term? The model
-    can drop a sentence or a "no" as easily as a number (measured: it once left out a sentence and
-    wrote one that wasn't said). Spelling is compared by letters, so "non-tender" is "nontender"."""
+    """Does `after` keep every negation of `before`, every drug name and medical term, and every sentence
+    (at least half of its words)? The model can drop a sentence or a "no" as easily as a number
+    (measured: it once left out a sentence and wrote one that wasn't said). Spelling is compared by
+    letters, so "non-tender" is "nontender"."""
     if len(_NEGATION.findall(after)) != len(_NEGATION.findall(before)):
         return False
     letters = re.sub(r"[^a-z0-9]", "", after.lower())
-    return all(re.sub(r"[^a-z0-9]", "", term) in letters for term in medical.key_terms(before, settings))
+    if not all(re.sub(r"[^a-z0-9]", "", term) in letters for term in medical.key_terms(before, settings)):
+        return False
+    for sentence in re.split(r"(?<=[.!?])\s+", before):
+        words = [w for w in re.findall(r"[a-z]+", sentence.lower()) if len(w) > 2 and w not in _FILLER_WORDS]
+        if len(words) >= 3 and 2 * sum(w not in letters for w in words) > len(words):
+            return False
+    return True
 
 
 # ---- command mode -----------------------------------------------------------
@@ -295,6 +311,7 @@ _FRACTIONS = {"½": 0.5, "¼": 0.25, "¾": 0.75}
 _ASCII_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
 _DIGITS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.\d+|\d+")
 _LIST_MARKER = re.compile(r"(?m)^[ \t]*(?:\d{1,2}[.)]|[-*•])[ \t]+")
+_LIST_NUMBER = re.compile(r"(?m)^[ \t]*(\d{1,2})[.)][ \t]+")
 
 
 def _digit(word: str) -> int | None:
@@ -366,6 +383,9 @@ def numbers_kept(before: str, after: str, exact: bool) -> bool:
     """Do the numbers in `after` match those in `before`? Spoken forms count ("twenty five" = 25).
     exact: the same numbers; otherwise `after` may only drop some, never add or change one."""
     was, now = _numbers(before), _numbers(after)
+    # "Number one, start aspirin. Number two, ..." comes back as a numbered list: its markers aren't
+    # counted above, so give back the ones that were said.
+    now += Counter(int(m) for m in _LIST_NUMBER.findall(after.translate(_ASCII_DIGITS))) & (was - now)
     return now == was if exact else not (now - was)
 
 

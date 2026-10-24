@@ -143,6 +143,15 @@ def test_list_numbers_added_by_formatting_are_ignored():
     assert ai_cleanup.numbers_kept(before, "1. Take aspirin\n2. Take metformin 500 mg", exact=True)
 
 
+def test_a_list_said_with_numbers_can_come_back_numbered():
+    """In medical mode a plan dictated "number one, ... number two, ..." never got its list: the
+    spoken one and two were missing from the answer, so it was thrown away."""
+    said = "Plan: number one, start aspirin. Number two, hold heparin 5000 units."
+    assert ai_cleanup.numbers_kept(said, "Plan:\n1. Start aspirin.\n2. Hold heparin 5000 units.", exact=True)
+    assert not ai_cleanup.numbers_kept(said, "Plan:\n1. Start aspirin.\n2. Hold heparin.", exact=True)
+    assert not ai_cleanup.numbers_kept("give 2 tablets now", "1. Give tablets now", exact=True)
+
+
 def test_changed_or_added_numbers_are_caught():
     assert not ai_cleanup.numbers_kept("give 5 mg", "Give 50 mg", exact=False)
     assert not ai_cleanup.numbers_kept("give 5 mg", "Give 5 mg twice daily for 7 days", exact=False)
@@ -191,6 +200,12 @@ def test_ai_never_drops_a_negation_or_a_drug(monkeypatch):
         ("Start hydralazine 10 mg IV now.", "Start hydroxyzine 10 mg IV now."),
         ("Please hold heparin tonight, thanks.", "Please hold tonight, thanks."),
         ("No hepatosplenomegaly on exam today.", "No splenomegaly on exam today."),
+        # Measured: a sentence left out, and one added that wasn't said.
+        ("Hi Sarah, I wanted to follow up on yesterday's meeting. Could you send me the updated schedule by Friday afternoon? Thanks again for your help.",
+         "Hi Sarah,\n\nCould you send me the updated schedule by Friday afternoon? Thanks again for your help.\n\n---\n\n"
+         "I meant to say, could you send me the updated schedule by Friday? Thanks again for your help."),
+        ("Family is at the bedside and agrees with the plan. Hold heparin tonight and restart it in the morning.",
+         "Hold heparin tonight and restart it in the morning."),
     ]:
         monkeypatch.setattr(ai_cleanup, "_post", lambda *a, answer=answer, **k: {"message": {"content": answer}})
         assert ai_cleanup.refine(said, s, context.DOCUMENT) == said
@@ -199,6 +214,13 @@ def test_ai_never_drops_a_negation_or_a_drug(monkeypatch):
     assert ai_cleanup.refine("he doesn't smoke, abdomen nontender", s, context.DOCUMENT) == "He does not smoke. Abdomen non-tender."
     monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Start apixaban 5 mg twice a day."}})
     assert ai_cleanup.refine("start a pyxibon 5 mg twice a day", s, context.DOCUMENT) == "Start apixaban 5 mg twice a day."
+    for said, answer in [
+        ("Plan: number one, start aspirin. Number two, hold heparin.", "Plan:\n1. Start aspirin.\n2. Hold heparin."),
+        ("The patient is a 67 year old man with hypertension on metoprolol 25 mg twice daily.",
+         "A 67-year-old man with hypertension on metoprolol 25 mg twice daily."),
+    ]:
+        monkeypatch.setattr(ai_cleanup, "_post", lambda *a, answer=answer, **k: {"message": {"content": answer}})
+        assert ai_cleanup.refine(said, s, context.DOCUMENT) == answer
 
 
 def test_markdown_the_ai_adds_is_removed(monkeypatch):
