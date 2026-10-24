@@ -50,13 +50,18 @@ def _font(px: int):
     return _fonts[px]
 
 
-def render_pill(state: str, t: float, level: float, scale: float = 1.0):
-    """Draw the pill as an RGBA image. `t` is seconds since it appeared (drives the
-    animations), `level` the smoothed 0..1 voice level, `scale` the display scaling."""
+_bases: dict[tuple[str, float], tuple[object, dict[str, float]]] = {}
+
+
+def _base(state: str, scale: float):
+    """The pill's parts that don't move (shadow, body, label), drawn once per state and display
+    scaling: redrawing the shadow every frame cost 12 ms at 150% scaling, a third of a core at 30 fps."""
+    key = (state, scale)
+    if key in _bases:
+        return _bases[key]
     from PIL import Image, ImageDraw
 
-    ss = 3  # draw 3x larger and shrink: smooth edges without an anti-aliasing API
-    k = scale * ss
+    k = scale * SS
     label = LABELS.get(state, "")
     font = _font(round(13 * k))
     text_w = font.getlength(label)
@@ -78,11 +83,36 @@ def render_pill(state: str, t: float, level: float, scale: float = 1.0):
 
     cy = shadow + h / 2
     x = shadow + pad
+    text_x = x + icon_w + round(9 * k)
+    d.text((text_x, cy), label, font=font, fill=(245, 245, 247, 255), anchor="lm")
+    _bases[key] = (img, {"k": k, "cy": cy, "x": x, "icon_w": icon_w, "bars_x": text_x + text_w + round(12 * k)})
+    return _bases[key]
+
+
+SS = 3  # draw 3x larger and shrink: smooth edges without an anti-aliasing API
+
+
+def render_pill(state: str, t: float, level: float, scale: float = 1.0):
+    """Draw the pill as an RGBA image. `t` is seconds since it appeared (drives the
+    animations), `level` the smoothed 0..1 voice level, `scale` the display scaling."""
+    from PIL import Image, ImageDraw
+
+    base, g = _base(state, scale)
+    img = base.copy()
+    d = ImageDraw.Draw(img)
+    k, cy, x = g["k"], g["cy"], g["x"]
     if state in (RECORDING, HANDS_FREE):
         # Recording dot that breathes gently (about one cycle per 1.4 s).
         r = 4.5 * k * (0.9 + 0.1 * math.sin(t * 4.5))
         color = (255, 69, 58, 255) if state == RECORDING else (255, 159, 10, 255)
-        d.ellipse((x + icon_w / 2 - r, cy - r, x + icon_w / 2 + r, cy + r), fill=color)
+        d.ellipse((x + g["icon_w"] / 2 - r, cy - r, x + g["icon_w"] / 2 + r, cy + r), fill=color)
+        bw, gap = 3 * k, 3 * k
+        max_h, min_h = 16 * k, 3 * k
+        for i, wgt in enumerate(BAR_WEIGHTS):
+            wobble = 0.85 + 0.15 * math.sin(t * 9 + i * 1.7)
+            bh = min_h + (max_h - min_h) * min(1.0, level * wgt * wobble)
+            bx = g["bars_x"] + i * (bw + gap)
+            d.rounded_rectangle((bx, cy - bh / 2, bx + bw, cy + bh / 2), radius=bw / 2, fill=(245, 245, 247, 235))
     else:
         # Three dots rippling: work in progress.
         for i in range(3):
@@ -91,22 +121,8 @@ def render_pill(state: str, t: float, level: float, scale: float = 1.0):
             rr = 1.9 * k
             cx = x + i * 4.6 * k + rr
             d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=(255, 255, 255, a))
-    x += icon_w + round(9 * k)
 
-    d.text((x, cy), label, font=font, fill=(245, 245, 247, 255), anchor="lm")
-    x += text_w + round(12 * k)
-
-    if state in (RECORDING, HANDS_FREE):
-        bw, gap = 3 * k, 3 * k
-        max_h, min_h = 16 * k, 3 * k
-        for i, wgt in enumerate(BAR_WEIGHTS):
-            wobble = 0.85 + 0.15 * math.sin(t * 9 + i * 1.7)
-            bh = min_h + (max_h - min_h) * min(1.0, level * wgt * wobble)
-            bx = x + i * (bw + gap)
-            d.rounded_rectangle((bx, cy - bh / 2, bx + bw, cy + bh / 2), radius=bw / 2, fill=(245, 245, 247, 235))
-
-    out = img.resize((max(1, round(img.width / ss)), max(1, round(img.height / ss))), Image.LANCZOS)
-    return out
+    return img.resize((max(1, round(img.width / SS)), max(1, round(img.height / SS))), Image.LANCZOS)
 
 
 class Overlay:
