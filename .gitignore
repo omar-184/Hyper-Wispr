@@ -7,3 +7,4 @@ dist/
 # Never commit material extracted from the Wispr Flow app.
 reference/
 *.asar
+hyper_wispr/gpu_pack.json

@@ -42,20 +42,13 @@ def is_newer(latest: str, current: str = __version__) -> bool:
     return bool(a) and a + (0,) * (width - len(a)) > b + (0,) * (width - len(b))
 
 
-def installed_variant() -> str:
-    """"GPU" for the NVIDIA build (it bundles the CUDA libraries), otherwise "CPU"."""
-    base = getattr(sys, "_MEIPASS", None)
-    if base and any((Path(base) / "ctranslate2").glob("cublas*.dll")):
-        return "GPU"
-    return "CPU"
-
-
-def pick_asset(assets: list[dict[str, Any]], variant: str) -> dict[str, Any] | None:
+def pick_asset(assets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The one installer for every PC. (Up to 0.4.0 there was also an -NVIDIA installer with the
+    CUDA libraries inside; now the app downloads those itself when the graphics card can use them,
+    so an NVIDIA install updates with the regular installer too.)"""
     for a in assets:
         name = a.get("name", "")
-        if not (name.startswith("Hyper-Wispr-Setup-") and name.endswith(".exe")):
-            continue
-        if name.endswith("-NVIDIA.exe") == (variant == "GPU"):
+        if name.startswith("Hyper-Wispr-Setup-") and name.endswith(".exe") and not name.endswith("-NVIDIA.exe"):
             return a
     return None
 
@@ -81,7 +74,7 @@ def check(timeout: float = 8.0) -> dict[str, Any]:
         log.info("Update check failed: %s", e)
         return {"ok": False, "error": _friendly(e), "current": __version__}
     latest = str(release.get("tag_name", "")).lstrip("v")
-    asset = pick_asset(release.get("assets", []), installed_variant())
+    asset = pick_asset(release.get("assets", []))
     result = {
         "ok": True,
         "current": __version__,

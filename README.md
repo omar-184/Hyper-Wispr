@@ -17,16 +17,20 @@ but is written from scratch and uses open-source models:
 ## Install (Windows)
 
 1. Go to [Releases](https://github.com/omar-184/Hyper-Wispr/releases/latest) and download
-   `Hyper-Wispr-Setup-<version>.exe`, or the `-NVIDIA` version if your PC has an NVIDIA GeForce
-   GTX 10-series, MX150 or newer card (bigger download, much faster). Older cards such as the MX130
-   can't run the speech model, so take the regular version.
+   `Hyper-Wispr-Setup-<version>.exe`. It's the same installer for every PC. On first start,
+   Hyper-Wispr checks your graphics card: if it's an NVIDIA GeForce GTX 10-series, MX150 or newer,
+   it downloads NVIDIA's speed-up files once (about 1.3 GB) and runs speech recognition on the card,
+   which is much faster. Older cards such as the MX130, and PCs without NVIDIA, use the processor
+   and download nothing extra. (The `-NVIDIA` file on the release page is an identical copy, kept
+   only so versions up to 0.4.0 can update themselves.)
 2. Run it. No administrator password is needed. If Windows says "Windows protected your PC", click
    **More info → Run anyway** (the installer isn't code-signed).
 3. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
    Hyper-Wispr downloads its AI model automatically.
 4. The Hyper-Wispr window opens on its dashboard, and a round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
    Grey = loading, blue = ready, red = listening, amber = working. The first start downloads the
-   speech model once (about 0.5 to 1.6 GB), so it stays grey for a few minutes.
+   speech model once (about 0.5 to 1.6 GB, plus the NVIDIA files above if your card can use them),
+   so it stays grey for a few minutes. If that download is interrupted, it carries on at the next start.
 
 ### Install from source instead
 
@@ -118,11 +122,13 @@ pytest
 ```
 
 Releases: pushing a tag like `v0.2.0` (or running the workflow from the Actions tab with **publish** ticked) runs `.github/workflows/release.yml`, which tests the code, builds the
-app with PyInstaller (CPU and NVIDIA variants), smoke-tests it, wraps it with Inno Setup and publishes the
-installers as a GitHub Release.
+app with PyInstaller, smoke-tests it, wraps it with Inno Setup and publishes the installer as a GitHub Release.
+There is one installer: `packaging/gpu_manifest.py` pins the NVIDIA CUDA wheels (the `[gpu]` extra) with their
+checksums into `gpu_pack.json`, and the app downloads them from PyPI only on PCs whose card can use them
+(`hyper_wispr/gpu_pack.py`, files kept in `%LOCALAPPDATA%\HyperWispr\nvidia` so updates don't fetch them again).
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
-`speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
+`speech.py` (Whisper), `gpu_pack.py` (NVIDIA check and download), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
 `paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history),
 `uia.py` (reading the text box you dictate into), `learn.py` (learning corrected words), `media.py` (muting music),
 `history.py` and `secure.py` (encrypted history and notes), `app.py` (tray app tying it together), `updates.py` (update check and install), `settings_ui/` (the window:

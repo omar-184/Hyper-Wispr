@@ -30,10 +30,6 @@ jobs:
   build:
     needs: test
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [CPU, GPU]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,15 +51,18 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          if [ "${{ matrix.variant }}" = "GPU" ]; then pip install ".[gpu]"; else pip install .; fi
-          pip install "pyinstaller>=6.10"
+          pip install . "pyinstaller>=6.10" packaging
           # Generate the UI Automation wrapper now, so it's bundled instead of written at run time.
           python -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll'); import comtypes.gen.UIAutomationClient"
 
+      - name: Pin the NVIDIA files
+        shell: bash
+        # One installer for everyone: the app downloads these from PyPI only on PCs whose NVIDIA
+        # card can use them. Exact versions and checksums are fixed here, per release.
+        run: python packaging/gpu_manifest.py
+
       - name: Build app
         shell: bash
-        env:
-          HW_GPU: ${{ matrix.variant == 'GPU' && '1' || '0' }}
         run: pyinstaller --noconfirm --distpath dist --workpath build packaging/hyper_wispr.spec
 
       - name: Smoke test the built app
@@ -86,11 +85,11 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.v.outputs.version }}" "/DVariant=${{ matrix.variant }}" packaging\installer.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.v.outputs.version }}" packaging\installer.iss
 
       - uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ matrix.variant }}
+          name: installer
           path: dist/Hyper-Wispr-Setup-*.exe
           if-no-files-found: error
 
@@ -101,8 +100,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: installer-*
-          merge-multiple: true
+          name: installer
+      - name: Copy for older NVIDIA versions
+        shell: bash
+        # Up to 0.4.0 the NVIDIA build only updated itself to a file ending in -NVIDIA.exe.
+        # This is the same installer under that name, so those PCs can still update in the app.
+        run: for f in Hyper-Wispr-Setup-*.exe; do cp "$f" "${f%.exe}-NVIDIA.exe"; done
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
@@ -112,11 +115,13 @@ jobs:
           body: |
             ## Download
 
-            - **Hyper-Wispr-Setup-(version).exe**: works on any Windows 10/11 PC.
-            - **…-NVIDIA.exe**: larger download, much faster and more accurate if your PC has an NVIDIA graphics card.
+            - **Hyper-Wispr-Setup-(version).exe**: the installer for every Windows 10/11 PC.
+              If your PC has an NVIDIA graphics card that can run the speech model (GTX 10-series, MX150 or newer),
+              the first start also downloads its speed-up files once (about 1.3 GB). Older or no NVIDIA cards use the processor.
+            - **…-NVIDIA.exe**: an identical copy, only there so versions up to 0.4.0 can update themselves. You don't need it.
 
             Run the installer (no administrator rights needed), then hold **Ctrl + Win**, speak, and let go.
-            The first start downloads the speech model once (about 0.5 to 1.6 GB); after that everything runs offline.
+            The first start downloads the speech model once (about 0.5 to 1.6 GB, plus the NVIDIA files above if your card can use them); after that everything runs offline.
             For the optional AI cleanup step, install [Ollama](https://ollama.com/download); Hyper-Wispr downloads its model automatically.
 
             Windows may show "Windows protected your PC" because the installer isn't code-signed: click **More info → Run anyway**.

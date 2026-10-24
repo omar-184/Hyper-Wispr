@@ -100,9 +100,11 @@ class Api:
 
     # ---- hardware --------------------------------------------------------
     def gpu_available(self) -> bool:
+        from .. import gpu_pack
         from ..speech import usable_gpu
 
-        return usable_gpu()
+        # Asking the driver works before the NVIDIA files are downloaded; the tray app fetches them.
+        return gpu_pack.usable_card() is not None or (gpu_pack.libraries_ready() and usable_gpu())
 
     def list_microphones(self) -> dict[str, Any]:
         """Input devices of the default sound system (MME on Windows), named so sounddevice

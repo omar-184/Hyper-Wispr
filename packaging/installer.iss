@@ -1,15 +1,9 @@
 ; Inno Setup script. Built by .github/workflows/release.yml:
-;   iscc /DAppVersion=0.1.0 /DVariant=GPU packaging\installer.iss
+;   iscc /DAppVersion=0.5.0 packaging\installer.iss
+; One installer for every PC: on first start the app downloads the NVIDIA files itself if the
+; graphics card can use them.
 #ifndef AppVersion
   #define AppVersion "0.0.0"
-#endif
-#ifndef Variant
-  #define Variant "CPU"
-#endif
-#if Variant == "GPU"
-  #define Suffix "-NVIDIA"
-#else
-  #define Suffix ""
 #endif
 
 [Setup]
@@ -24,7 +18,7 @@ DisableProgramGroupPage=yes
 ; Installs for the current user only: no administrator password needed.
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=Hyper-Wispr-Setup-{#AppVersion}{#Suffix}
+OutputBaseFilename=Hyper-Wispr-Setup-{#AppVersion}
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\Hyper-Wispr.exe
 Compression=lzma2/max
@@ -61,6 +55,9 @@ Filename: "{app}\Hyper-Wispr.exe"; Flags: nowait; Check: WizardSilent
 [UninstallDelete]
 ; "Open at login" in Settings may have created this even if the installer task was unticked.
 Type: files; Name: "{userstartup}\Hyper-Wispr.lnk"
+; The NVIDIA files the app downloaded (about 2 GB). They can be downloaded again, so no need to ask.
+Type: filesandordirs; Name: "{localappdata}\HyperWispr\nvidia"
+Type: dirifempty; Name: "{localappdata}\HyperWispr"
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM Hyper-Wispr.exe /F"; Flags: runhidden; RunOnceId: "StopApp"
