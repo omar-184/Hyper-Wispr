@@ -10,7 +10,12 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = collect_data_files("faster_whisper") + collect_data_files("onnxruntime")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("sounddevice")
 datas += collect_data_files("_sounddevice_data")
-datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files and gpu_pack.json
+datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files
+# Added from the source folder: it's written after `pip install .`, so the installed copy lacks it.
+GPU_PACK = os.path.join(ROOT, "hyper_wispr", "gpu_pack.json")
+if not os.path.isfile(GPU_PACK):
+    raise SystemExit("Run packaging/gpu_manifest.py first: hyper_wispr/gpu_pack.json is missing")
+datas.append((GPU_PACK, "hyper_wispr"))
 datas += collect_data_files("webview")
 hiddenimports = (
     collect_submodules("hyper_wispr")
