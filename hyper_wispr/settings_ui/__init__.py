@@ -284,6 +284,52 @@ class Api:
             log.exception("Copying failed")
             return False
 
+    # ---- medical dictation ------------------------------------------------
+    def medical_info(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """The packs of the medical dictionary, for the window's current (maybe unsaved) settings."""
+        from .. import medical
+
+        try:
+            return {"ok": True, **medical.summary(settings)}
+        except Exception as e:
+            log.exception("Reading the medical dictionary failed")
+            return {"ok": False, "error": str(e), "packs": [], "total": 0, "user_dir": ""}
+
+    def medical_lookup(self, query: str, settings: dict[str, Any]) -> list[dict[str, Any]]:
+        from .. import medical
+
+        try:
+            return medical.lookup(query, settings)
+        except Exception:
+            log.exception("Looking up a medical word failed")
+            return []
+
+    def medical_try(self, text: str, settings: dict[str, Any]) -> str:
+        """The medical fixes applied to typed text, so you can see what they do (no AI step)."""
+        from .. import cleanup, medical
+
+        try:
+            return medical.fix(cleanup.clean(text, settings), {**settings, "medical": {**(settings.get("medical") or {}), "enabled": True}})
+        except Exception:
+            log.exception("Trying the medical fixes failed")
+            return text
+
+    def open_medical_folder(self) -> None:
+        from .. import medical
+
+        folder = medical.user_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        readme = folder / "README.txt"
+        if not readme.exists():
+            readme.write_text(
+                "Put your own medical word lists here, as .txt files: one word or phrase per line.\n"
+                "Hyper-Wispr adds them to the medical dictionary within a few seconds.\n"
+                "Lines starting with # are ignored. Put * in front of the few words the speech model should\n"
+                "always expect, e.g. *Farghal.\n",
+                encoding="utf-8",
+            )
+        _open(folder)
+
     # ---- dashboard ---------------------------------------------------------
     def get_status(self) -> dict[str, Any]:
         """What the tray app is doing, from the status.json it writes."""

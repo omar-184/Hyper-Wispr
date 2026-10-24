@@ -14,7 +14,7 @@ import urllib.request
 from collections import Counter
 from typing import Any
 
-from . import context
+from . import context, medical
 
 log = logging.getLogger(__name__)
 
@@ -65,14 +65,20 @@ def dictionary_words(settings: dict[str, Any]) -> list[str]:
     return [w for w in words if w.strip() and not (w.lower() in seen or seen.add(w.lower()))]
 
 
-def build_system_prompt(settings: dict[str, Any], app_type: str, before: str = "") -> str:
+def build_system_prompt(settings: dict[str, Any], app_type: str, before: str = "", text: str = "") -> str:
+    """text: the dictation, so medical dictation can list the terms that look like its words."""
     cfg = settings["ai_cleanup"]
     parts = [BASE_PROMPT]
     if STYLE.get(app_type):
         parts.append(STYLE[app_type])
     parts.append(TONES.get(style_for(settings, app_type), TONES["formal"]))
-    if cfg.get("medical_mode"):
+    if medical.enabled(settings):
         parts.append(MEDICAL_RULES)
+        if text and (terms := medical.ai_terms(text, settings)):
+            parts.append(
+                "Medical terms that sound like words of this dictation. Where the speaker clearly meant one of "
+                "them, spell it exactly like this; never add one that wasn't said: " + ", ".join(terms)
+            )
     if words := dictionary_words(settings):
         parts.append("Spell these words exactly like this: " + ", ".join(words))
     if before.strip():
@@ -121,7 +127,7 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
     if not cfg.get("enabled") or len(text.split()) < cfg.get("min_words", 0):
         return text
     try:
-        out = _chat(settings, build_system_prompt(settings, app_type, before), f"<dictation>\n{text}\n</dictation>", cfg.get("timeout_seconds", 8))
+        out = _chat(settings, build_system_prompt(settings, app_type, before, text), f"<dictation>\n{text}\n</dictation>", cfg.get("timeout_seconds", 8))
     except Exception as e:  # optional step: any failure (timeout, Ollama restarting, bad reply) keeps the text
         log.warning("AI cleanup skipped: %s", e)
         return text
@@ -133,7 +139,7 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
         return text
     # A model can quietly change a dose. In medical mode every number must survive exactly;
     # otherwise it may drop a number the speaker corrected, but never add or change one.
-    if not numbers_kept(text, out, exact=bool(cfg.get("medical_mode"))):
+    if not numbers_kept(text, out, exact=medical.enabled(settings)):
         log.warning("AI cleanup output rejected: it changed a number")
         return text
     return out
@@ -162,7 +168,7 @@ def command(instruction: str, selected: str, settings: dict[str, Any]) -> str:
     """Rewrite `selected` the way the spoken `instruction` says."""
     cfg = settings["ai_cleanup"]
     system = COMMAND_PROMPT
-    if cfg.get("medical_mode"):
+    if medical.enabled(settings):
         system += "\n\n" + COMMAND_MEDICAL
     if cfg.get("extra_instructions"):
         system += "\n\n" + cfg["extra_instructions"]
@@ -177,7 +183,7 @@ def command(instruction: str, selected: str, settings: dict[str, Any]) -> str:
     if not out:
         raise CommandError("The AI model returned nothing. Try saying the instruction differently.")
     # A rewrite may drop numbers ("make this shorter") but must never invent or change one.
-    if cfg.get("medical_mode") and not numbers_kept(selected + " " + instruction, out, exact=False):
+    if medical.enabled(settings) and not numbers_kept(selected + " " + instruction, out, exact=False):
         log.warning("Command mode result rejected: it changed a number")
         raise CommandError("The rewrite changed a number or dose, so it wasn't pasted. Your text is unchanged.")
     return out

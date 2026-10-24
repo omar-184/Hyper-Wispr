@@ -1,0 +1,106 @@
+# Title: Cardiology
+# Description: Cardiac anatomy, rhythms, echo and cath findings, cardiac drugs and procedures.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+left anterior descending
+circumflex
+right coronary artery
+obtuse marginal
+diagonal
+posterior descending artery
+left main
+ejection fraction
+*LVEF
+left ventricular hypertrophy
+diastolic dysfunction
+regional wall motion abnormality
+akinesis
+hypokinesis
+dyskinesis
+aortic stenosis
+aortic regurgitation
+mitral regurgitation
+mitral stenosis
+tricuspid regurgitation
+patent foramen ovale
+atrial septal defect
+ventricular septal defect
+cardiac tamponade
+pericardial effusion
+atrial flutter
+supraventricular tachycardia
+ventricular tachycardia
+ventricular fibrillation
+torsades de pointes
+heart block
+first-degree AV block
+Mobitz
+Wenckebach
+complete heart block
+bundle branch block
+left bundle branch block
+right bundle branch block
+QT prolongation
+ST elevation
+ST depression
+T-wave inversion
+sinus rhythm
+sinus tachycardia
+sinus bradycardia
+premature ventricular contractions
+PVCs
+NYHA
+CHA2DS2-VASc
+HAS-BLED
+TIMI
+GRACE
+*troponin
+BNP
+NT-proBNP
+
+# Procedures
+cardiac catheterization
+*percutaneous coronary intervention
+PCI
+drug-eluting stent
+angioplasty
+*CABG <- cabbage
+coronary artery bypass graft
+TAVR
+TAVI
+valve replacement
+valve repair
+MitraClip
+ablation
+cardioversion
+pacemaker
+ICD
+CRT
+loop recorder
+stress test
+Holter monitor
+transesophageal echocardiogram
+Swan-Ganz
+intra-aortic balloon pump
+Impella
+ECMO
+LVAD
+
+# Drugs
+dobutamine
+milrinone
+norepinephrine
+vasopressin
+nitroprusside
+amiodarone
+ibutilide
+procainamide
+digoxin
+sacubitril-valsartan
+Entresto
+eptifibatide
+tirofiban
+cangrelor
+evolocumab
+alirocumab
+icosapent ethyl

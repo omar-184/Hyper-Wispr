@@ -58,6 +58,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   notes: '<path d="M6.5 3.5h8l4 4v12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M14 3.5V8h4.5M8.5 12.5h7M8.5 16h5"/>',
   redo: '<path d="M19 8v4.5h-4.5"/><path d="M18.6 12.4A7 7 0 1 1 17 7.4"/>',
+  medical: '<path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5z"/>',
 };
 function icon(name) {
   const span = document.createElement("span");
@@ -326,22 +327,28 @@ function keysView(keys) {
   return out;
 }
 
-function shortcutRow() {
+function defaultOf(path) {
+  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), S.defaults);
+}
+
+/* A shortcut with a "Change" button that records a new one. */
+function shortcutRow(path = "push_to_talk_keys", label = "Push-to-talk shortcut", desc = handsFreeText()) {
   const wrap = h("div", { class: "row stack" });
   let listening = false;
   const show = (error) => {
     listening = false;
-    const keys = get("push_to_talk_keys") || [];
-    const isDefault = JSON.stringify(keys) === JSON.stringify(S.defaults.push_to_talk_keys);
+    const keys = get(path) || [];
+    const defaults = defaultOf(path) || [];
+    const isDefault = JSON.stringify(keys) === JSON.stringify(defaults);
     wrap.replaceChildren(...[
       h("div", { class: "meter-row" },
         h("div", { class: "row-text" },
-          h("div", { class: "row-label" }, "Push-to-talk shortcut"),
-          h("div", { class: "row-desc" }, handsFreeText())),
+          h("div", { class: "row-label" }, label),
+          h("div", { class: "row-desc" }, desc)),
         keysView(keys),
         h("button", { class: "btn", type: "button", onclick: record }, "Change")),
       error && h("div", { class: "hint-error", role: "alert" }, error),
-      !isDefault && h("div", {}, h("button", { class: "link", type: "button", onclick: () => { set("push_to_talk_keys", [...S.defaults.push_to_talk_keys]); show(); } }, `Reset to ${S.defaults.push_to_talk_keys.map(keyLabel).join(" + ")}`)),
+      !isDefault && h("div", {}, h("button", { class: "link", type: "button", onclick: () => { set(path, [...defaults]); show(); } }, `Reset to ${defaults.map(keyLabel).join(" + ")}`)),
     ].filter(Boolean));
   };
   const record = () => {
@@ -351,7 +358,7 @@ function shortcutRow() {
     const box = h("div", { class: "recorder", tabindex: "-1" },
       h("span", { class: "pulse", "aria-hidden": "true" }),
       h("span", { class: "rec-text" }, "Press and hold the keys you want, then let go. Esc cancels."));
-    wrap.replaceChildren(h("div", { class: "row-label" }, "Push-to-talk shortcut"), box);
+    wrap.replaceChildren(h("div", { class: "row-label" }, label), box);
     box.focus();
     // While recording, the tray app ignores the current shortcut instead of starting to dictate.
     api().begin_shortcut_capture();
@@ -383,7 +390,11 @@ function shortcutRow() {
       const hasModifierOrF = best.some((k) => MODIFIERS.includes(k) || /^f\d+$/.test(k) || ["caps_lock", "scroll_lock", "pause", "insert", "menu"].includes(k));
       if (!hasModifierOrF) return done("Pick a combination with Ctrl, Win, Alt or Shift (or an F-key), so normal typing doesn't start dictation.");
       if (best.length === 1 && MODIFIERS.includes(best[0])) return done(`${keyLabel(best[0])} on its own is used by too many other shortcuts. Add a second key.`);
-      set("push_to_talk_keys", best);
+      const others = [["push_to_talk_keys", "push-to-talk"], ["paste_last_keys", "paste last dictation"], ["medical.toggle_keys", "medical dictation"]].filter(([p]) => p !== path);
+      const plain = (keys) => JSON.stringify(sortKeys(keys.map((k) => (MODIFIERS.includes(k.split("_")[0]) ? k.split("_")[0] : k))));
+      const clash = others.find(([p]) => plain(get(p) || []) === plain(best));
+      if (clash) return done(`That's already the shortcut for ${clash[1]}. Pick another one.`);
+      set(path, best);
       done();
     };
     window.addEventListener("keydown", down, true);
@@ -487,6 +498,7 @@ const PAGES = [
   { id: "home", label: "Dashboard", icon: "home" },
   { id: "history", label: "History", icon: "history" },
   { id: "notes", label: "Notes", icon: "notes" },
+  { id: "medical", label: "Medical", icon: "medical" },
   { id: "general", label: "General", icon: "general", group: "Settings" },
   { id: "speech", label: "Speech", icon: "speech" },
   { id: "ai", label: "AI cleanup", icon: "ai" },
@@ -619,7 +631,7 @@ function homePage() {
       h("div", { class: "dash-side" },
         dashCard("Quick settings", null, h("div", { class: "dash-rows" },
           row("AI cleanup", "Punctuation, \"um\"s and corrections fixed by a local AI.", toggle("ai_cleanup.enabled")),
-          row("Medical mode", "Drug names, doses and abbreviations kept exact.", toggle("ai_cleanup.medical_mode")),
+          row("Medical dictation", ["Medical spelling, doses and units. ", keysView(get("medical.toggle_keys") || []), " turns it on or off."], toggle("medical.enabled")),
           row("Sounds", "A soft tone when listening starts and stops.", toggle("audio.sounds")),
           row("On-screen indicator", "The \"Listening\" bubble while you dictate.", toggle("overlay.enabled")))),
         dashCard("Your setup", h("button", { class: "link with-icon", type: "button", onclick: () => go("general") }, "Settings", icon("arrow")), h("div", { class: "dash-rows" },
@@ -857,7 +869,10 @@ function aiPage() {
       ]),
     ], [
       section("Writing", [
-        row("Medical mode", "Keeps drug names, doses, units and clinical abbreviations exact (\"metoprolol 25 mg PO BID\"). If you correct a number out loud, both numbers are kept; say \"scratch that\" and repeat the sentence instead.", toggle("ai_cleanup.medical_mode"), { disabled: off }),
+        h("div", { class: "row" + (off ? " disabled" : "") },
+          h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Medical writing"),
+            h("div", { class: "row-desc" }, get("medical.enabled") ? "On: drug names, doses and units are kept exact, and the AI is told the medical terms you said." : "Off. Medical dictation has its own page.")),
+          h("div", { class: "row-control" }, h("button", { class: "btn small", type: "button", onclick: () => go("medical") }, "Medical settings"))),
         row("Model", "Larger models write better but take longer. qwen2.5:3b is a good start.",
           modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
         h("div", { class: "row stack" + (off ? " disabled" : "") },
@@ -1045,6 +1060,120 @@ function notesPage() {
   ];
 }
 
+/* ---- medical dictation ---------------------------------------------------- */
+const SPECIALTY_NAMES = { neuro: "Neurology & neurosurgery", cardio: "Cardiology", icu: "Emergency & ICU", surgery: "Surgery & orthopedics", obgyn: "Obstetrics & gynecology", peds: "Pediatrics" };
+
+async function refreshMedical() {
+  S.medical = await api().medical_info(S.settings);
+  if (S.page === "medical") render();
+}
+
+function medicalPage() {
+  const on = !!get("medical.enabled");
+  const info = S.medical;
+  if (!info) refreshMedical();
+  const packs = info ? info.packs : [];
+  const off = !on;
+  const changed = () => { refreshMedical(); };
+
+  const specialties = h("div", { class: "chips", role: "group", "aria-label": "Specialties" },
+    packs.filter((p) => p.kind === "specialty").map((p) => {
+      const chosen = (get("medical.specialties") || []).includes(p.id);
+      return h("button", {
+        type: "button", class: "chip toggle" + (chosen ? " on" : ""), "aria-pressed": String(chosen), title: p.description,
+        onclick: () => {
+          const cur = get("medical.specialties") || [];
+          set("medical.specialties", cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id]);
+          changed();
+        },
+      }, `${SPECIALTY_NAMES[p.id] || p.title} · ${formatNumber(p.count)}`);
+    }));
+
+  const core = packs.filter((p) => p.kind === "core" || p.kind === "fda");
+  const mine = packs.filter((p) => p.kind === "user");
+
+  // "Check a word": is it in the dictionary, and from which list; hide or bring back built-in words.
+  const results = h("div", { class: "lookup-results", "aria-live": "polite" });
+  const lookup = h("input", { type: "search", class: "grow", placeholder: "Type a drug, term or abbreviation", "aria-label": "Check a word", spellcheck: "false" });
+  let lookupTimer = null;
+  const paintLookup = async () => {
+    const q = lookup.value.trim();
+    if (q.length < 2) { results.replaceChildren(); return; }
+    const found = await api().medical_lookup(q, S.settings);
+    if (lookup.value.trim() !== q) return;
+    const add = h("button", { class: "btn small", type: "button", onclick: () => {
+      const cur = get("medical.custom_terms") || [];
+      if (!cur.some((w) => w.toLowerCase() === q.toLowerCase())) set("medical.custom_terms", [...cur, q]);
+      render(); changed();
+    } }, `Add "${q}"`);
+    const exact = found.some((f) => f.term.toLowerCase() === q.toLowerCase() && !f.hidden);
+    results.replaceChildren(...[
+      ...found.map((f) => h("div", { class: "lookup-row" },
+        h("span", { class: "lookup-term" + (f.hidden ? " struck" : "") }, f.term),
+        h("span", { class: "row-desc" }, f.similar ? `Closest match · ${f.pack}` : f.pack),
+        f.pack !== "Your words" && h("button", { class: "link", type: "button", onclick: () => {
+          const cur = get("medical.hidden_terms") || [];
+          set("medical.hidden_terms", f.hidden ? cur.filter((w) => w.toLowerCase() !== f.term.toLowerCase()) : [...cur, f.term]);
+          refreshMedical().then(paintLookup);
+        } }, f.hidden ? "Bring back" : "Hide"))),
+      !found.length && h("div", { class: "row-desc" }, "Not in the dictionary."),
+      !exact && h("div", { class: "lookup-row" }, add)].filter(Boolean));
+  };
+  lookup.addEventListener("input", () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(paintLookup, 200); });
+
+  // "Try it": type a sentence the way the speech model might write it.
+  const tryOut = h("div", { class: "try-out row-desc", "aria-live": "polite" }, "Example: start metoprolal 25 milligrams PO b.i.d., BP 140 over 90");
+  const tryIn = h("input", { type: "text", class: "grow", "aria-label": "Try the medical fixes", spellcheck: "false", placeholder: "Type a sentence as you'd say it" });
+  let tryTimer = null;
+  tryIn.addEventListener("input", () => {
+    clearTimeout(tryTimer);
+    tryTimer = setTimeout(async () => {
+      const text = tryIn.value;
+      if (!text.trim()) { tryOut.textContent = ""; return; }
+      const out = await api().medical_try(text, S.settings);
+      if (tryIn.value === text) tryOut.replaceChildren(h("span", { class: "row-label" }, "Becomes: "), out);
+    }, 250);
+  });
+
+  return [
+    ...pageHeader("Medical dictation", "Writes the way a clinical note is typed: drug names and terms spelled right, doses and units in standard form, and numbers never changed. It all runs on this computer."),
+    h("div", { class: "card section medical-hero" + (on ? " on" : "") },
+      row("Medical dictation", on ? "On for every dictation." : "Off: dictation writes everyday text.", toggle("medical.enabled", () => render())),
+      shortcutRow("medical.toggle_keys", "On/off shortcut", "Press it from any app to switch medical dictation on or off; a notice says which. Also in the tray menu.")),
+    cols([
+      section("Specialties", [h("div", { class: "row stack" + (off ? " disabled" : "") },
+        h("div", { class: "row-text" }, h("div", { class: "row-desc" }, "Add the words of your fields. Each one also teaches the speech model a few of its key terms.")),
+        info ? specialties : h("span", { class: "empty" }, "Loading…"))]),
+      section("Your medical words", [chipList("medical.custom_terms", "Add a drug, procedure, eponym or colleague's name")],
+        "Always spelled like this, and given to the speech model first. Words in your general dictionary (Vocabulary page) count too."),
+      section("Check a word", [h("div", { class: "row stack" },
+        h("div", { class: "search-bar" }, lookup), results)],
+        "See whether a word is in the dictionary, add it, or hide a built-in word you never want."),
+      (get("medical.hidden_terms") || []).length ? section("Hidden words", [chipList("medical.hidden_terms", "Hide another built-in word")],
+        "These built-in words are never used. Remove one to bring it back.") : null,
+    ], [
+      section("What it does", [
+        row("Teach the speech model", "Gives Whisper your words and the key terms of your specialties before it listens, so it hears them right.", toggle("medical.speech_hints"), { disabled: off }),
+        row("Fix near-miss spellings", "\"metoprolal\" becomes \"metoprolol\", \"levo floxacin\" becomes \"levofloxacin\". Ordinary English words are never changed.", toggle("medical.fix_spelling"), { disabled: off }),
+        row("Standard units", "\"25 milligrams\" becomes \"25 mg\", \"5 micrograms per kilogram per minute\" becomes \"5 mcg/kg/min\", \"BP 120 over 80\" becomes \"BP 120/80\".", toggle("medical.format_units"), { disabled: off }),
+        row("Full FDA drug list", "About 4,000 more generic and brand names, for spelling fixes and the AI.", toggle("medical.fda_drug_names", changed), { disabled: off }),
+        row("AI cleanup", get("ai_cleanup.enabled") ? "Keeps every number exactly as said and gets the medical terms you said, so it spells them right." : "AI cleanup is off, so only the fixes above apply.", null, { disabled: off }),
+      ]),
+      section("Try it", [h("div", { class: "row stack" + (off ? " disabled" : "") }, tryIn, tryOut)],
+        "Shows the spelling and unit fixes. The AI cleanup adds punctuation and the rest when you dictate."),
+      section("Dictionary", [
+        ...core.map((p) => h("div", { class: "row" + (p.on ? "" : " disabled") },
+          h("div", { class: "row-text" }, h("div", { class: "row-label" }, p.title), h("div", { class: "row-desc" }, p.description || p.source)),
+          h("div", { class: "row-control" }, h("span", { class: "pill" }, formatNumber(p.count))))),
+        h("div", { class: "row" },
+          h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Your own word lists"),
+            h("div", { class: "row-desc" }, mine.length ? mine.map((p) => `${p.title} (${formatNumber(p.count)})`).join(", ") : "Put .txt files with one word per line in this folder, e.g. a list exported from your hospital's formulary.")),
+          h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: async () => { await api().open_medical_folder(); setTimeout(refreshMedical, 3000); } }, "Open folder"))),
+      ], info ? `${formatNumber(info.total)} terms in use. Drug names: U.S. FDA National Drug Code Directory (public domain). Anatomy, conditions, abbreviations and specialty lists: written for Hyper-Wispr. Abbreviations on the ISMP "do not use" list (QD, U, IU) are never produced.` : null),
+    ]),
+  ];
+}
+
 /* ---- updates ------------------------------------------------------------- */
 async function checkForUpdate(manual) {
   S.checking = true;
@@ -1166,7 +1295,7 @@ function aboutPage() {
   ];
 }
 
-const RENDER = { home: homePage, general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, notes: notesPage, about: aboutPage };
+const RENDER = { home: homePage, general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, notes: notesPage, medical: medicalPage, about: aboutPage };
 
 /* ---- navigation ---------------------------------------------------------- */
 function renderNav() {
@@ -1242,8 +1371,8 @@ async function init() {
 }
 
 document.addEventListener("keydown", (e) => {
-  // Ctrl+1..8 jumps between sections.
-  if (e.ctrlKey && !e.altKey && /^[1-8]$/.test(e.key)) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
+  // Ctrl+1..9 jumps between sections.
+  if (e.ctrlKey && !e.altKey && /^[1-9]$/.test(e.key) && PAGES[Number(e.key) - 1]) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
 });
 
 if (window.pywebview && window.pywebview.api && window.pywebview.api.get_state) init();

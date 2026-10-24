@@ -1,0 +1,27 @@
+name: Refresh FDA drug names
+
+# Rebuilds the FDA drug-name lists of the medical dictionary and commits them to the branch.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["packaging/build_drug_list.py"]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python packaging/build_drug_list.py
+      - name: Commit if changed
+        run: |
+          git add hyper_wispr/medical/data/fda-*.txt
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898732+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Refresh FDA drug names for the medical dictionary"
+          git push

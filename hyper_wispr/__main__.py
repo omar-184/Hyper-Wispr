@@ -148,6 +148,12 @@ def self_test() -> int:
                 raise RuntimeError("Encryption round trip failed")
         if getattr(sys, "frozen", False) and gpu_pack.manifest() is None:
             raise RuntimeError("gpu_pack.json (the NVIDIA download list) is missing from the build")
+        from . import medical
+
+        if len(medical.builtin_packs()) < 10 or not medical.english_words():
+            raise RuntimeError("The medical dictionary's word lists are missing from the build")
+        if medical.fix("metoprolal 25 milligrams", {"medical": {"enabled": True}}) != "metoprolol 25 mg":
+            raise RuntimeError("The medical dictionary doesn't work")
         cards = [gpu_pack.describe(c) for c in gpu_pack.nvidia_cards()]
         logging.info("Self-test OK: ctranslate2 %s, CUDA devices: %s, NVIDIA cards: %s", ctranslate2.__version__, cuda_available(), cards or "none")
         return 0

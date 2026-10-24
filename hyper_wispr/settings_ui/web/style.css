@@ -442,3 +442,14 @@ details.more[open] > summary::before { transform: rotate(45deg); }
 .note-editor:focus { box-shadow: none; outline: none; }
 .notes-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--hairline); }
 @media (max-width: 760px) { .notes { grid-template-columns: minmax(0, 1fr); } .notes-list { max-height: 220px; } }
+
+/* medical dictation */
+.medical-hero { border-left: 3px solid transparent; transition: border-color 0.2s; }
+.medical-hero.on { border-left-color: var(--accent); }
+.lookup-results { display: flex; flex-direction: column; gap: 2px; }
+.lookup-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; }
+.lookup-term { font-weight: 500; }
+.lookup-term.struck { text-decoration: line-through; color: var(--text-3); }
+.lookup-row .row-desc { flex: 1; min-width: 0; }
+.try-out { padding-top: 8px; overflow-wrap: anywhere; }
+.try-out .row-label { display: inline; }

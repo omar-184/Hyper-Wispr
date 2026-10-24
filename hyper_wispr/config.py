@@ -78,11 +78,29 @@ DEFAULTS: dict[str, Any] = {
         "timeout_seconds": 8,
         # Short dictations (< this many words) skip the AI step to stay instant.
         "min_words": 4,
-        # Adds medical-writing rules: keep drug names, doses, units and abbreviations exact.
-        "medical_mode": True,
         "extra_instructions": "",
         # Tone per kind of app: "formal", "casual" or "very_casual".
         "styles": {"email": "formal", "message": "casual", "document": "formal", "ai_chat": "casual", "code": "formal", "other": "formal"},
+    },
+    # Medical dictation (the Medical page). Uses a medical dictionary at every step: hints for the
+    # speech model, spelling and unit fixes, and medical writing rules for the AI cleanup.
+    "medical": {
+        "enabled": True,
+        # Turns medical dictation on or off from anywhere (also in the tray menu).
+        "toggle_keys": ["ctrl_l", "alt_l", "m"],
+        # Specialty word lists to add: neuro, cardio, icu, surgery, obgyn, peds.
+        "specialties": [],
+        # The ~4,000 drug names of the FDA's drug directory (generic and brand).
+        "fda_drug_names": True,
+        # Give the main medical terms to the speech model as a hint.
+        "speech_hints": True,
+        # Correct words that are close to a medical term ("metoprolal" -> "metoprolol").
+        "fix_spelling": True,
+        # "25 milligrams" -> "25 mg", "120 over 80" -> "120/80".
+        "format_units": True,
+        # Your own medical words, and built-in ones you don't want.
+        "custom_terms": [],
+        "hidden_terms": [],
     },
     # Read the text around the cursor so a dictation continues your sentence (capitals, spacing)
     # and the AI can spell names already on screen. Read locally, never stored or logged.
@@ -156,6 +174,14 @@ def migrate(settings: dict[str, Any]) -> dict[str, Any]:
     cleanup = settings.get("cleanup")
     if isinstance(cleanup, dict) and cleanup.get("filler_words") == _OLD_FILLER_WORDS:
         cleanup["filler_words"] = list(DEFAULTS["cleanup"]["filler_words"])
+    # Up to 0.4 medical mode was a switch of the AI cleanup; it's its own feature now.
+    ai = settings.get("ai_cleanup")
+    if isinstance(ai, dict) and "medical_mode" in ai:
+        was_on = bool(ai.pop("medical_mode"))
+        medical = settings.get("medical")
+        if not isinstance(medical, dict):
+            settings["medical"] = medical = {}
+        medical.setdefault("enabled", was_on)
     return settings
 
 
@@ -170,7 +196,8 @@ def load(path: Path | None = None) -> dict[str, Any]:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("settings.json must contain a JSON object")
-    return migrate(merge(DEFAULTS, data))
+    # Migrated before merging, so a setting the file doesn't have yet isn't mistaken for a choice.
+    return migrate(merge(DEFAULTS, migrate(data)))
 
 
 def recover(path: Path | None = None) -> Path:

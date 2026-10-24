@@ -1,0 +1,115 @@
+"""Writes the drug-name lists of the medical dictionary from the U.S. FDA National Drug Code
+Directory (https://www.fda.gov/drugs/drug-approvals-and-databases/national-drug-code-directory).
+FDA data is a work of the U.S. Government and in the public domain.
+
+    python packaging/build_drug_list.py [path/to/ndctext.zip]
+
+Without a path the current directory is downloaded from the FDA. Writes
+hyper_wispr/medical/data/fda-generics.txt and fda-brands.txt. Run by medical-terms.yml; the
+lists are committed so the app (and its tests) never need the internet.
+"""
+
+import csv
+import datetime
+import io
+import re
+import sys
+import urllib.request
+import zipfile
+from collections import Counter
+from pathlib import Path
+
+URL = "https://www.accessdata.fda.gov/cder/ndctext.zip"
+OUT = Path(__file__).resolve().parents[1] / "hyper_wispr" / "medical" / "data"
+
+# Salt and form words: "metoprolol tartrate" is dictated as "metoprolol".
+SALTS = set("""
+hydrochloride hcl dihydrochloride hydrobromide sodium disodium potassium dipotassium calcium magnesium
+tartrate bitartrate succinate maleate mesylate dimesylate besylate citrate sulfate bisulfate phosphate
+diphosphate acetate diacetate bromide chloride fumarate hemifumarate hyclate monohydrate dihydrate trihydrate
+hemihydrate sesquihydrate anhydrous lactate gluconate carbonate bicarbonate oxide nitrate tosylate
+valerate propionate dipropionate butyrate furoate pamoate palmitate decanoate enanthate cypionate
+xinafoate trometamol tromethamine meglumine lysine arginine benzoate salicylate stearate ethylsuccinate
+estolate hydrate monosodium trisodium methylbromide mononitrate dinitrate hippurate napsylate
+edisylate esylate isethionate lauroxil sodium-free free base acid
+""".split())
+# Words that are never a drug name on their own.
+SKIP = set("""
+and with in of for the extended release delayed injection oral solution tablet tablets capsule
+human recombinant liquid kit usp nf topical ophthalmic otic water purified sterile
+""".split())
+
+
+def rows(zip_path: str | None):
+    if zip_path:
+        data = Path(zip_path).read_bytes()
+    else:
+        req = urllib.request.Request(URL, headers={"User-Agent": "Hyper-Wispr dictionary builder"})
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = resp.read()
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        text = z.read("product.txt").decode("latin-1")
+    yield from csv.DictReader(io.StringIO(text), delimiter="\t")
+
+
+def generic_names(substances: str) -> list[str]:
+    out = []
+    for part in re.split(r";|,| and ", substances, flags=re.IGNORECASE):
+        words = [w for w in re.split(r"[\s,()/]+", part.lower()) if w]
+        while len(words) > 1 and words[-1] in SALTS:
+            words.pop()
+        name = " ".join(words)
+        if name and len(name) >= 4 and len(words) <= 3 and not any(ch.isdigit() for ch in name) and name not in SKIP:
+            out.append(name)
+    return out
+
+
+def brand(name: str) -> str | None:
+    name = re.sub(r"\s+", " ", name).strip()
+    # "Motpoly XR", "Combogesic IV": the form suffix isn't part of what's dictated.
+    name = re.sub(r"\s+[A-Za-z]{1,3}$", "", name)
+    if not name or len(name) < 4 or len(name.split()) > 2 or not re.fullmatch(r"[A-Za-z][A-Za-z -]+[A-Za-z]", name):
+        return None
+    # The directory writes many brands in capitals ("ELIQUIS").
+    return " ".join(w.capitalize() if w.isupper() or w.islower() else w for w in name.split())
+
+
+def main() -> None:
+    generics: Counter = Counter()
+    brands: Counter = Counter()
+    for r in rows(sys.argv[1] if len(sys.argv) > 1 else None):
+        kind = r.get("PRODUCTTYPENAME", "")
+        category = r.get("MARKETINGCATEGORYNAME", "")
+        if "HOMEOPATHIC" in category or "BULK" in category or kind not in ("HUMAN PRESCRIPTION DRUG", "HUMAN OTC DRUG"):
+            continue
+        names = generic_names(r.get("SUBSTANCENAME") or r.get("NONPROPRIETARYNAME") or "")
+        # Approved prescription drugs count fully; OTC and unapproved products (herbal extracts and
+        # the like) only make it when there are many of them.
+        approved = kind == "HUMAN PRESCRIPTION DRUG" and category in ("NDA", "ANDA", "BLA", "NDA AUTHORIZED GENERIC")
+        weight = 1 if approved else 0.2
+        for n in names:
+            generics[n] += weight
+        if kind == "HUMAN PRESCRIPTION DRUG" and category in ("NDA", "BLA"):
+            b = brand(r.get("PROPRIETARYNAME", ""))
+            if b and b.lower() not in {n for n in names} and not set(b.lower().split()) & SKIP:
+                brands[b] += 1
+    keep_g = sorted(n for n, c in generics.items() if c >= 1 and all(re.fullmatch(r"[a-z][a-z-]*[a-z]", w) for w in n.split()))
+    generic_words = {w for n in keep_g for w in n.split()} | SALTS
+    # "Methadone Hydrochloride", "Insulin Glargine-aldy" are generic names, not brands.
+    keep_b = sorted(b for b in brands if not set(re.split(r"[ -]", b.lower())) & generic_words)
+    today = datetime.date.today().isoformat()
+    header = (
+        "# Source: U.S. FDA National Drug Code Directory ({url}), downloaded {today}.\n"
+        "# Public domain (a work of the U.S. Government). Generated by packaging/build_drug_list.py; do not edit by hand:\n"
+        "# add your own words in Hyper-Wispr's Medical page instead.\n"
+    ).format(url=URL, today=today)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "fda-generics.txt").write_text(
+        "# Title: FDA drug names (generic)\n" + header + "\n".join(keep_g) + "\n", encoding="utf-8")
+    (OUT / "fda-brands.txt").write_text(
+        "# Title: FDA drug names (brand)\n" + header + "\n".join(keep_b) + "\n", encoding="utf-8")
+    print(f"{len(keep_g)} generic names, {len(keep_b)} brand names")
+
+
+if __name__ == "__main__":
+    main()

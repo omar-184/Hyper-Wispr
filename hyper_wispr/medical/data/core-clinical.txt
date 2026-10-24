@@ -1,0 +1,216 @@
+# Title: Conditions, findings and procedures
+# Description: Diagnoses, examination findings, tests and procedures common to every specialty.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+# Diagnoses
+hypertension
+hypotension
+tachycardia
+bradycardia
+*atrial fibrillation
+heart failure
+myocardial infarction
+angina
+cardiomyopathy
+endocarditis
+pericarditis
+pneumonia
+bronchitis
+bronchiolitis
+asthma
+emphysema
+pneumothorax
+pleural effusion
+pulmonary embolism
+deep vein thrombosis
+thrombosis
+embolism
+sepsis
+septic shock
+bacteremia
+cellulitis
+abscess
+osteomyelitis
+pyelonephritis
+urinary tract infection
+cystitis
+diabetes mellitus
+hyperglycemia
+hypoglycemia
+diabetic ketoacidosis
+hypothyroidism
+hyperthyroidism
+hyponatremia
+hypernatremia
+hypokalemia
+hyperkalemia
+hypocalcemia
+hypercalcemia
+hypomagnesemia
+acidosis
+alkalosis
+acute kidney injury
+chronic kidney disease
+anemia
+thrombocytopenia
+leukocytosis
+leukopenia
+neutropenia
+pancytopenia
+coagulopathy
+cirrhosis
+hepatitis
+pancreatitis
+cholecystitis
+cholelithiasis
+choledocholithiasis
+appendicitis
+diverticulitis
+gastroenteritis
+colitis
+gastritis
+esophagitis
+gastroesophageal reflux
+peptic ulcer
+gastrointestinal bleeding
+melena
+hematochezia
+hematemesis
+small bowel obstruction
+ileus
+hernia
+stroke
+transient ischemic attack
+seizure
+epilepsy
+syncope
+dementia
+delirium
+encephalopathy
+meningitis
+migraine
+neuropathy
+osteoarthritis
+rheumatoid arthritis
+gout
+osteoporosis
+fracture
+malignancy
+carcinoma
+adenocarcinoma
+lymphoma
+leukemia
+metastasis
+metastases
+depression
+anxiety
+schizophrenia
+bipolar disorder
+
+# Symptoms and findings
+dyspnea
+orthopnea
+tachypnea
+hemoptysis
+wheezing
+crackles
+rhonchi
+stridor
+cyanosis
+edema
+pitting edema
+jaundice
+icterus
+pallor
+diaphoresis
+nausea
+vomiting
+diarrhea
+constipation
+dysphagia
+odynophagia
+dyspepsia
+hematuria
+dysuria
+oliguria
+anuria
+polyuria
+nocturia
+pruritus
+erythema
+rash
+urticaria
+lymphadenopathy
+hepatomegaly
+splenomegaly
+hepatosplenomegaly
+ascites
+guarding
+rebound tenderness
+murmur
+gallop
+palpitations
+paresthesia
+vertigo
+dizziness
+lethargy
+malaise
+afebrile
+febrile
+normocephalic
+atraumatic
+nontender
+nondistended
+unremarkable
+asymptomatic
+
+# Tests and procedures
+electrocardiogram
+echocardiogram
+computed tomography
+magnetic resonance imaging
+ultrasound
+radiograph
+chest X-ray
+angiography
+endoscopy
+colonoscopy
+bronchoscopy
+biopsy
+lumbar puncture
+paracentesis
+thoracentesis
+arthrocentesis
+intubation
+extubation
+tracheostomy
+central line
+arterial line
+nasogastric tube
+Foley catheter
+catheterization
+dialysis
+hemodialysis
+transfusion
+debridement
+incision and drainage
+laparoscopy
+laparotomy
+anastomosis
+hemoglobin
+hematocrit
+platelets
+creatinine
+troponin
+lactate
+procalcitonin
+D-dimer
+bilirubin
+albumin
+lipase
+amylase
+electrolytes
+urinalysis
+blood culture
+arterial blood gas
+INR
