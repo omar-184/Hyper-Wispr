@@ -41,7 +41,8 @@ Download the code (green **Code** button → **Download ZIP**), unzip it, double
 | Press **Esc** while listening | Cancel, nothing is pasted |
 | Say "new line", "new paragraph", "comma", "period", "question mark" | Inserts that punctuation |
 | Say "scratch that" | Deletes the sentence you just said |
-| Tray icon → **Paste last dictation** | Pastes your previous dictation again |
+| Tray icon → **Copy last dictation** | Puts your previous dictation on the clipboard; paste it with Ctrl+V |
+| Start Hyper-Wispr again while it's running | Opens the Settings window |
 
 ## Customize
 
@@ -104,5 +105,5 @@ installers as a GitHub Release.
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
 `speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
-`paste.py` (clipboard paste), `app.py` (tray app tying it together), `settings_ui/` (the Settings window:
+`paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history), `app.py` (tray app tying it together), `settings_ui/` (the Settings window:
 a pywebview page in `web/`, run as a separate process with `--settings`).
