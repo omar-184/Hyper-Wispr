@@ -293,7 +293,7 @@ class Api:
         if running is False:
             return {"running": False, "status": "stopped", "label": "Not running"}
         return {"running": True, "status": info.get("status", "loading"), "label": info.get("label", "Starting…"),
-                "model": info.get("model", ""), "error": info.get("error", "")}
+                "model": info.get("model", ""), "error": info.get("error", ""), "download": info.get("download")}
 
     def get_stats(self, days: int = 14) -> dict[str, Any]:
         """Totals and a day-by-day count of words for the dashboard, worked out from the history."""
