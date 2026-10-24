@@ -436,7 +436,11 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
             english = sum(_is_english(w) for w in words)
             if exact and " " not in exact and (english < n or len(joined) >= 9):
                 match = exact
-            elif english < n and len(joined) >= 8 and (best := lex.best(joined, 0.9)) and " " not in best[0]:
+            # Joined by likeness only when every piece is a fragment: a whole term, or a short word
+            # next to one, is a word of its own ("Metoprolol no longer needed" keeps its "no").
+            elif (english < n and len(joined) >= 8
+                  and not any(lex.knows(w) or _inflection_of_known(w, lex) or (len(w) <= 3 and _is_english(w)) for w in words)
+                  and (best := lex.best(joined, 0.9)) and " " not in best[0]):
                 match = best[0]
             else:
                 continue

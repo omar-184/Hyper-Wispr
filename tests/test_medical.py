@@ -75,6 +75,15 @@ def test_near_misses_are_corrected(heard, written):
     assert medical.fix(heard, settings(format_units=False)) == written
 
 
+@pytest.mark.parametrize("text", [
+    "Metoprolol no longer needed.", "Levetiracetam no change.", "Enoxaparin no longer.", "Dopram in the morning.",
+    "Norepinephrine at 0.08 mcg/kg/min.", "Increase acetylcysteine to 600 mg.", "Vancomycin or linezolid.",
+])
+def test_a_short_word_next_to_a_drug_name_is_kept(text):
+    """They were joined as if the speech model had split one term: "no" vanished after 3 in 10 terms."""
+    assert medical.fix(text, settings()) == text
+
+
 def test_specialty_words_are_corrected_when_the_specialty_is_on():
     assert medical.fix("plan for craniotamy", settings(specialties=["neuro"])) == "plan for craniotomy"
 
