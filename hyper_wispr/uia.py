@@ -29,6 +29,9 @@ TEXT_PATTERN2 = 10024
 VALUE_PATTERN = 10002
 START, END = 0, 1  # TextPatternRangeEndpoint
 CHARACTER = 0  # TextUnit_Character
+WM_GETTEXTLENGTH, EM_GETSEL = 0x000E, 0x00B0
+SMTO_ABORTIFHUNG = 0x0002
+EDIT_MAX_CHARS = 200_000  # a bigger classic text box isn't read in full just for the words before the cursor
 
 EDIT, DOCUMENT = 50004, 50030
 # Controls you can't type into. Deliberately short: many apps report text boxes as "pane",
@@ -152,6 +155,52 @@ def _selection(element, text, mod):
     return caret[-1] if isinstance(caret, tuple) else caret
 
 
+def _user32():
+    if "user32" not in _state:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32")
+        user32.RealGetWindowClassW.argtypes = (wintypes.HWND, wintypes.LPWSTR, wintypes.UINT)
+        user32.RealGetWindowClassW.restype = wintypes.UINT
+        user32.SendMessageTimeoutW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+                                               wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t))
+        user32.SendMessageTimeoutW.restype = ctypes.c_ssize_t
+        _state["user32"] = user32
+    return _state["user32"]
+
+
+def _classic_edit(element, value, before_chars: int, after_chars: int) -> tuple[str, str, str] | None:
+    """A classic Windows text box (Notepad before Windows 11, many older programs) gives UI Automation
+    its whole text but not where the cursor is in it, so ask the box itself.
+    (before, selected, after), or None when it isn't one or doesn't answer."""
+    import ctypes
+
+    try:
+        hwnd = element.CurrentNativeWindowHandle
+        user32 = _user32()
+        name = ctypes.create_unicode_buffer(16)
+        if not hwnd or not user32.RealGetWindowClassW(hwnd, name, 16) or name.value.lower() != "edit":
+            return None
+        length, start, end = ctypes.c_size_t(), ctypes.c_uint32(), ctypes.c_uint32()
+        if not user32.SendMessageTimeoutW(hwnd, WM_GETTEXTLENGTH, 0, 0, SMTO_ABORTIFHUNG, 200, ctypes.byref(length)):
+            return None
+        if length.value > EDIT_MAX_CHARS or not user32.SendMessageTimeoutW(
+                hwnd, EM_GETSEL, ctypes.addressof(start), ctypes.addressof(end), SMTO_ABORTIFHUNG, 200, None):
+            return None
+        units = (value.CurrentValue or "").encode("utf-16-le")  # the box counts in UTF-16 units
+    except Exception:
+        return None
+    s, e = 2 * start.value, 2 * end.value
+    if not s <= e <= len(units):
+        return None
+
+    def part(a: int, b: int) -> str:
+        return units[max(a, 0):b].decode("utf-16-le", "replace")
+
+    return part(s - 2 * before_chars, s), part(s, e), part(e, e + 2 * after_chars)
+
+
 def _read_focus(before_chars: int, after_chars: int) -> Focus:
     uia, mod = _uia()
     element = uia.GetFocusedElement()
@@ -166,8 +215,13 @@ def _read_focus(before_chars: int, after_chars: int) -> Focus:
         focus.editable = True
     elif control in NOT_TEXT and text is None and value is None:
         focus.editable = False
-    if focus.password or text is None:
+    if focus.password:
         return focus  # never read a password box
+    if text is None:
+        got = _classic_edit(element, value, before_chars, after_chars) if value is not None else None
+        if got is not None:
+            focus.before, focus.selected, focus.after = got
+        return focus
     sel = _selection(element, text, mod)
     if sel is None:
         return focus
