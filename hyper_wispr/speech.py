@@ -261,6 +261,13 @@ class Transcriber:
         self.load_settings = {k: speech_cfg.get(k) for k in RELOAD_KEYS}
         self.multilingual = bool(getattr(self.model.model, "is_multilingual", True))
 
+    def _count_tokens(self, text: str) -> int:
+        """How much of Whisper's prompt (223 tokens at most) this text takes."""
+        try:
+            return len(self.model.hf_tokenizer.encode(" " + text, add_special_tokens=False).ids)
+        except Exception:
+            return len(text) // 3 + 1
+
     def transcribe(self, audio: np.ndarray | str) -> str:
         cfg = self.settings["speech"]
         whisper_mode = bool(self.settings.get("audio", {}).get("whisper_mode"))
@@ -274,12 +281,10 @@ class Transcriber:
             if not cfg.get("language") and len(allowed) > 1 and not isinstance(audio, str):
                 _lang, _prob, detected = self.model.detect_language(audio)
             language = pick_language(cfg, detected)
-        # The initial prompt nudges Whisper toward your spelling of names and jargon.
-        # Whisper keeps only the last ~220 tokens of it, so starred words go at the end.
-        from .ai_cleanup import dictionary_words
+        # The initial prompt nudges Whisper toward your spelling of names, drugs and jargon.
+        from . import medical
 
-        words = dictionary_words(self.settings)[::-1]
-        prompt = ("Vocabulary: " + ", ".join(words) + ".") if words else None
+        prompt = medical.speech_prompt(self.settings, self._count_tokens)
         segments, info = self.model.transcribe(
             audio,
             language=language,

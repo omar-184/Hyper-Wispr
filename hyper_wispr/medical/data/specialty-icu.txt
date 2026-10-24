@@ -1,0 +1,116 @@
+# Title: Emergency and critical care
+# Description: Resuscitation, drips, ventilator settings, scores and ICU abbreviations.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+# Resuscitation and drips
+*norepinephrine
+epinephrine
+vasopressin
+phenylephrine
+dopamine
+dobutamine
+milrinone
+*propofol
+dexmedetomidine
+midazolam
+fentanyl
+ketamine
+etomidate
+rocuronium
+succinylcholine
+cisatracurium
+atropine
+amiodarone
+adenosine
+calcium chloride
+sodium bicarbonate
+hypertonic saline
+lactated Ringer's
+normal saline
+Plasma-Lyte
+albumin
+packed red blood cells
+fresh frozen plasma
+cryoprecipitate
+prothrombin complex concentrate
+Kcentra
+insulin infusion
+heparin infusion
+hydrocortisone
+methylene blue
+angiotensin II
+
+# Ventilation
+mechanical ventilation
+*PEEP
+tidal volume
+plateau pressure
+peak pressure
+driving pressure
+assist control
+pressure support
+SIMV
+CPAP
+BiPAP
+high-flow nasal cannula
+non-rebreather
+spontaneous breathing trial
+P/F ratio
+compliance
+auto-PEEP
+prone positioning
+ventilator-associated pneumonia
+
+# Scores and protocols
+SOFA
+qSOFA
+APACHE
+RASS
+CAM-ICU
+Wells score
+CURB-65
+PERC
+ACLS
+ATLS
+BLS
+ROSC
+CPR
+FAST exam
+eFAST
+primary survey
+secondary survey
+GCS
+
+# Conditions and terms
+shock
+cardiogenic shock
+hypovolemic shock
+distributive shock
+obstructive shock
+multiorgan failure
+respiratory failure
+hypoxemia
+hypercapnia
+rhabdomyolysis
+anaphylaxis
+status asthmaticus
+overdose
+toxidrome
+hypothermia
+hyperthermia
+compartment syndrome
+massive transfusion protocol
+cardiac arrest
+pulseless electrical activity
+asystole
+code blue
+rapid sequence intubation
+RSI
+cricothyrotomy
+chest tube
+needle decompression
+pericardiocentesis
+central venous catheter
+PICC
+arterial line
+Foley

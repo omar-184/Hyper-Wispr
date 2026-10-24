@@ -1,0 +1,120 @@
+# Title: Surgery and orthopedics
+# Description: Operative notes, instruments, closures, general surgery and orthopedic procedures.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+# Operative note
+preoperative diagnosis
+postoperative diagnosis
+estimated blood loss
+*EBL
+specimens
+drains
+complications
+general endotracheal anesthesia
+monitored anesthesia care
+time-out
+prepped and draped in the usual sterile fashion
+Pfannenstiel
+midline incision
+subcostal incision
+trocar
+pneumoperitoneum
+insufflation
+electrocautery
+Bovie
+hemostasis
+irrigation
+fascia
+subcuticular
+Monocryl
+Vicryl
+PDS
+Prolene
+nylon
+staples
+Steri-Strips
+Dermabond
+Jackson-Pratt
+JP drain
+Blake drain
+retractor
+Metzenbaum
+hemostat
+Kocher
+
+# General surgery
+*laparoscopic cholecystectomy
+cholecystectomy
+appendectomy
+herniorrhaphy
+hernioplasty
+inguinal hernia repair
+ventral hernia
+umbilical hernia
+incisional hernia
+mesh
+colectomy
+hemicolectomy
+sigmoidectomy
+low anterior resection
+abdominoperineal resection
+Hartmann procedure
+ileostomy
+colostomy
+gastrectomy
+Whipple
+pancreaticoduodenectomy
+fundoplication
+Nissen
+sleeve gastrectomy
+gastric bypass
+Roux-en-Y
+splenectomy
+thyroidectomy
+parathyroidectomy
+mastectomy
+lumpectomy
+sentinel lymph node biopsy
+exploratory laparotomy
+adhesiolysis
+lysis of adhesions
+small bowel resection
+enterotomy
+anastomotic leak
+wound dehiscence
+seroma
+hematoma
+surgical site infection
+
+# Orthopedics
+open reduction internal fixation
+*ORIF
+closed reduction
+intramedullary nail
+total knee arthroplasty
+total hip arthroplasty
+hemiarthroplasty
+arthroscopy
+ACL reconstruction
+meniscectomy
+rotator cuff repair
+carpal tunnel release
+fasciotomy
+amputation
+external fixator
+K-wire
+plate and screws
+cast
+splint
+weight bearing as tolerated
+non-weight bearing
+range of motion
+comminuted
+displaced
+nondisplaced
+intertrochanteric
+subtrochanteric
+femoral neck fracture
+distal radius fracture
+Colles fracture
+scaphoid

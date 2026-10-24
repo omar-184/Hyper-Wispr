@@ -1,0 +1,220 @@
+# Title: Anatomy
+# Description: Organs, regions, vessels, bones and muscles, with the adjectives used in notes.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+# Directions and regions
+anterior
+posterior
+superior
+inferior
+medial
+lateral
+proximal
+distal
+ventral
+dorsal
+cephalad
+caudal
+ipsilateral
+contralateral
+bilateral
+unilateral
+superficial
+supine
+prone
+epigastric
+periumbilical
+suprapubic
+hypogastric
+inguinal
+retroperitoneal
+intraperitoneal
+paravertebral
+subcutaneous
+intramuscular
+intravenous
+intrathecal
+
+# Head and neck
+cranium
+mandible
+maxilla
+zygoma
+orbit
+sclera
+conjunctiva
+cornea
+retina
+tympanic membrane
+nasopharynx
+oropharynx
+hypopharynx
+larynx
+epiglottis
+trachea
+thyroid
+parotid
+submandibular
+cervical lymph nodes
+sternocleidomastoid
+carotid
+
+# Chest
+thorax
+sternum
+clavicle
+scapula
+mediastinum
+pleura
+pleural
+pericardium
+pericardial
+myocardium
+endocardium
+atrium
+ventricle
+ventricular
+septum
+mitral valve
+tricuspid valve
+aortic valve
+pulmonary valve
+aorta
+aortic arch
+vena cava
+pulmonary artery
+bronchus
+bronchi
+bronchiole
+alveoli
+diaphragm
+intercostal
+esophagus
+oesophagus
+
+# Abdomen and pelvis
+peritoneum
+omentum
+mesentery
+stomach
+duodenum
+jejunum
+ileum
+cecum
+caecum
+appendix
+colon
+sigmoid
+rectum
+anus
+liver
+hepatic
+gallbladder
+biliary
+common bile duct
+pancreas
+pancreatic
+spleen
+splenic
+kidney
+renal
+ureter
+bladder
+urethra
+adrenal
+prostate
+uterus
+cervix
+ovary
+ovaries
+fallopian tube
+vagina
+testis
+testes
+scrotum
+epididymis
+inguinal canal
+
+# Vessels
+artery
+arteries
+arterial
+venous
+capillary
+subclavian
+axillary
+brachial
+radial
+ulnar
+femoral
+popliteal
+tibial
+dorsalis pedis
+iliac
+mesenteric
+celiac
+portal vein
+jugular
+saphenous
+coronary
+
+# Bones and joints
+vertebra
+vertebrae
+cervical spine
+thoracic spine
+lumbar spine
+sacrum
+coccyx
+humerus
+radius
+ulna
+carpal
+metacarpal
+phalanx
+phalanges
+pelvis
+acetabulum
+femur
+patella
+tibia
+fibula
+malleolus
+calcaneus
+talus
+tarsal
+metatarsal
+meniscus
+ligament
+tendon
+cartilage
+synovial
+glenohumeral
+acromioclavicular
+sacroiliac
+
+# Muscles and soft tissue
+biceps
+triceps
+deltoid
+quadriceps
+hamstring
+gastrocnemius
+gluteal
+rectus abdominis
+pectoralis
+trapezius
+latissimus dorsi
+rotator cuff
+fascia
+aponeurosis
+
+# Skin and nervous system (basics)
+epidermis
+dermis
+subcutaneous tissue
+cerebrum
+cerebellum
+brainstem
+spinal cord
+peripheral nerve

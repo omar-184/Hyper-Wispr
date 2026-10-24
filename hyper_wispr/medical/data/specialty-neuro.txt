@@ -1,0 +1,212 @@
+# Title: Neurology and neurosurgery
+# Description: Neuroanatomy, spine levels, neuro exam and scores, neuro drugs, cranial and spine procedures.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+# Neuroanatomy
+frontal lobe
+parietal lobe
+temporal lobe
+occipital lobe
+insula
+corpus callosum
+basal ganglia
+caudate
+putamen
+globus pallidus
+thalamus
+hypothalamus
+internal capsule
+*midbrain
+pons
+medulla
+cerebellopontine angle
+fourth ventricle
+lateral ventricle
+third ventricle
+foramen of Monro
+aqueduct of Sylvius
+Sylvian fissure
+circle of Willis
+middle cerebral artery
+anterior cerebral artery
+posterior cerebral artery
+basilar artery
+vertebral artery
+anterior communicating artery
+posterior communicating artery
+sagittal sinus
+transverse sinus
+sigmoid sinus
+dura mater
+arachnoid
+pia mater
+subarachnoid
+subdural
+epidural
+foramen magnum
+sella turcica
+pituitary
+cavernous sinus
+cauda equina
+conus medullaris
+dorsal root ganglion
+neural foramen
+foraminal
+pedicle
+lamina
+facet
+pars interarticularis
+spinous process
+transverse process
+intervertebral disc
+nucleus pulposus
+annulus fibrosus
+ligamentum flavum
+odontoid
+atlas
+axis
+C1
+C2
+C3
+C4
+C5
+C6
+C7
+T1
+T12
+L1
+L2
+L3
+L4
+L5
+S1
+L4-5
+L5-S1
+C5-6
+C6-7
+
+# Conditions
+*subarachnoid hemorrhage
+intracerebral hemorrhage
+intraventricular hemorrhage
+subdural hematoma
+epidural hematoma
+chronic subdural hematoma
+traumatic brain injury
+cerebral edema
+herniation
+midline shift
+*hydrocephalus
+normal pressure hydrocephalus
+aneurysm
+arteriovenous malformation
+cavernoma
+vasospasm
+ischemic stroke
+glioblastoma
+glioma
+astrocytoma
+oligodendroglioma
+meningioma
+schwannoma
+vestibular schwannoma
+pituitary adenoma
+craniopharyngioma
+ependymoma
+medulloblastoma
+metastatic disease
+Chiari malformation
+syringomyelia
+spinal stenosis
+spondylolisthesis
+spondylosis
+radiculopathy
+myelopathy
+disc herniation
+cauda equina syndrome
+trigeminal neuralgia
+status epilepticus
+Guillain-Barre
+myasthenia gravis
+multiple sclerosis
+Parkinson disease
+amyotrophic lateral sclerosis
+hemiparesis
+hemiplegia
+paraparesis
+quadriparesis
+aphasia
+dysarthria
+ataxia
+hemianopia
+diplopia
+nystagmus
+ptosis
+anisocoria
+papilledema
+clonus
+hyperreflexia
+Babinski
+pronator drift
+
+# Exam and scores
+*Glasgow Coma Scale
+NIH Stroke Scale
+NIHSS
+Hunt and Hess
+Fisher grade
+modified Rankin
+GCS
+EVD
+ICP
+CPP
+MAP
+
+# Drugs
+levetiracetam
+lacosamide
+phenytoin
+fosphenytoin
+valproate
+*nimodipine
+mannitol
+hypertonic saline
+dexamethasone
+tranexamic acid
+alteplase
+tenecteplase
+clevidipine
+nicardipine
+
+# Procedures
+*craniotomy
+craniectomy
+decompressive craniectomy
+cranioplasty
+burr hole
+external ventricular drain
+ventriculoperitoneal shunt
+ventriculostomy
+endoscopic third ventriculostomy
+lumbar drain
+stereotactic biopsy
+aneurysm clipping
+coiling
+embolization
+thrombectomy
+microdiscectomy
+*laminectomy
+laminotomy
+foraminotomy
+discectomy
+ACDF
+anterior cervical discectomy and fusion
+posterior spinal fusion
+TLIF
+PLIF
+kyphoplasty
+vertebroplasty
+pedicle screws
+deep brain stimulation
+vagus nerve stimulator
+transsphenoidal

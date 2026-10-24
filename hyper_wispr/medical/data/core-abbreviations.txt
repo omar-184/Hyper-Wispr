@@ -1,0 +1,157 @@
+# Title: Abbreviations and units
+# Description: Clinical abbreviations, dosing frequencies, routes and units, written the standard way.
+# Source: Curated for Hyper-Wispr (MIT license). Avoids the abbreviations on the ISMP "do not use"
+# list (QD, QOD, U, IU, MSO4): those are written out in full.
+
+# Frequencies and routes
+BID <- b.i.d.; b. i. d.
+TID <- t.i.d.; t. i. d.
+QID <- q.i.d.; q. i. d.
+PRN <- p.r.n.; p. r. n.
+PO <- p.o.; per os
+NPO <- n.p.o.
+IV <- i.v.
+IM <- i.m.
+SC <- s.c.
+SL <- s.l.
+PR
+NG
+q4h <- q. 4 h.; q 4 h
+q6h <- q. 6 h.; q 6 h
+q8h <- q. 8 h.; q 8 h
+q12h <- q. 12 h.; q 12 h
+qHS <- q.h.s.
+stat
+daily
+nightly
+once daily
+twice daily
+
+# Units (spoken units after a number are written like this automatically)
+mg
+mcg
+g
+kg
+mL
+L
+mEq
+mmol
+mmHg
+cm
+mm
+bpm
+
+# History and examination
+HPI
+PMH
+PSH
+ROS
+NKDA
+SOB
+CP
+N/V
+LOC
+GCS
+HEENT
+PERRLA
+EOMI
+JVD
+RRR
+CTAB
+NAD
+A&O
+MAE
+
+# Vital signs and measurements
+BP
+HR
+RR
+SpO2
+FiO2
+BMI
+MAP
+
+# Labs
+CBC
+BMP
+CMP
+LFTs
+PT
+PTT
+aPTT
+WBC
+Hgb
+Hct
+BUN
+eGFR
+HbA1c
+TSH
+CRP
+ESR
+ABG
+VBG
+BNP
+CK
+LDH
+UA
+
+# Imaging and tests
+CT
+CTA
+MRI
+MRA
+CXR
+ECG
+EKG
+TTE
+TEE
+US
+EEG
+EMG
+
+# Conditions
+*COPD
+CHF
+HFrEF
+HFpEF
+CAD
+MI
+STEMI
+NSTEMI
+ACS
+AF
+DVT
+PE
+CVA
+TIA
+AKI
+CKD
+ESRD
+DKA
+UTI
+GERD
+GI
+IBD
+HTN
+HLD
+DM
+T2DM
+OSA
+URI
+SIRS
+ARDS
+MRSA
+VRE
+
+# Settings and plans
+ICU
+ED
+OR
+PACU
+DNR
+DNI
+POA
+f/u
+D/C
+s/p
+w/o

@@ -7,6 +7,7 @@
 - Press the command key (default Alt) too, before or while recording: command mode, which
   rewrites the selected text as you say instead of pasting what you said.
 - The "paste last" keys (default Ctrl+Alt+Z): paste the last dictation again.
+- The medical keys (default Ctrl+Alt+M): turn medical dictation on or off.
 
 Key events arrive on the Windows keyboard-hook thread, which must return within a few
 hundred milliseconds or Windows starts dropping keystrokes. So the state machine only
@@ -61,6 +62,8 @@ class HotkeyStateMachine:
         command_key: str | None = None,
         paste_last: list[str] | None = None,
         on_paste_last: Callable[[], None] = lambda: None,
+        medical_keys: list[str] | None = None,
+        on_medical: Callable[[], None] = lambda: None,
     ):
         self.combo = combo
         self.tap_seconds = tap_seconds
@@ -75,6 +78,8 @@ class HotkeyStateMachine:
         self.command = False
         self.paste_last = paste_last or []
         self.on_paste_last = on_paste_last
+        self.medical_keys = medical_keys or []
+        self.on_medical = on_medical
         self.pressed: set[str] = set()
         self.state = IDLE
         self._down_at = 0.0
@@ -88,8 +93,8 @@ class HotkeyStateMachine:
     def _is_command_key(self, name: str) -> bool:
         return bool(self.command_key) and not self._in_combo(name) and key_matches(self.command_key, name)
 
-    def _paste_last_down(self, name: str) -> bool:
-        keys = self.paste_last
+    def _shortcut_down(self, keys: list[str], name: str) -> bool:
+        """Did pressing `name` complete this shortcut?"""
         if not keys or not any(key_matches(w, name) for w in keys):
             return False
         return all(any(key_matches(w, p) for p in self.pressed) for w in keys)
@@ -123,8 +128,11 @@ class HotkeyStateMachine:
             self.command = True
             self.on_combo()  # Alt on its own would select the app's menu bar when let go
             return
-        if self.state == IDLE and self._paste_last_down(name):
+        if self.state == IDLE and self._shortcut_down(self.paste_last, name):
             self.on_paste_last()
+            return
+        if self.state == IDLE and self._shortcut_down(self.medical_keys, name):
+            self.on_medical()
             return
         if not self._in_combo(name) or not self._combo_down():
             return

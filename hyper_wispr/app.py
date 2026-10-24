@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Any
 
-from . import ai_cleanup, cleanup, config, context, hotkeys, media, overlay, paste, settings_ui, uia
+from . import ai_cleanup, cleanup, config, context, hotkeys, media, medical, overlay, paste, settings_ui, uia
 from .audio import Recorder, chime, rms
 from .history import History
 from .learn import Learner
@@ -40,6 +40,7 @@ def process_text(raw: str, settings: dict[str, Any], app_type: str, before: str 
     text = cleanup.clean(raw, settings)
     if not text:
         return ""
+    text = medical.fix(text, settings)
     text = cleanup.apply_style(text, ai_cleanup.style_for(settings, app_type))
     text = ai_cleanup.refine(text, settings, app_type, before)
     return cleanup.fit_to_context(text, before, after)[0]
@@ -104,12 +105,17 @@ class App:
             command_key=self._command_key(),
             paste_last=self.settings.get("paste_last_keys") or [],
             on_paste_last=lambda: self.actions.put(self.paste_last),
+            medical_keys=self._medical_keys(),
+            on_medical=lambda: self.actions.put(self.toggle_medical),
         )
         self.learner = Learner(self._learned_word, self._known_words)
 
     def _command_key(self) -> str | None:
         cfg = self.settings.get("command_mode") or {}
         return cfg.get("key") if cfg.get("enabled", True) else None
+
+    def _medical_keys(self) -> list[str]:
+        return list((self.settings.get("medical") or {}).get("toggle_keys") or [])
 
     def _known_words(self) -> set[str]:
         return set(self.settings.get("dictionary", [])) | set(self.settings.get("dictionary_starred", []))
@@ -503,6 +509,7 @@ class App:
         self.machine.combo = self.settings["push_to_talk_keys"]
         self.machine.command_key = self._command_key()
         self.machine.paste_last = self.settings.get("paste_last_keys") or []
+        self.machine.medical_keys = self._medical_keys()
         try:
             self.recorder.open_standby()
         except Exception:
@@ -570,6 +577,22 @@ class App:
         except Exception:
             log.exception("Could not save the whisper mode setting")
 
+    def toggle_medical(self, *_: Any) -> None:
+        """Medical dictation on/off, from its shortcut or the tray menu."""
+        if settings_ui.shortcut_capture_active():
+            return  # the window is recording a new shortcut, maybe this one
+        enabled = not medical.enabled(self.settings)
+        self.settings.setdefault("medical", {})["enabled"] = enabled
+        try:
+            config.update({"medical.enabled": enabled})
+        except Exception:
+            log.exception("Could not save the medical dictation setting")
+        log.info("Medical dictation %s", "on" if enabled else "off")
+        if enabled:
+            self.notify("Medical dictation on", "Drug names, doses and units are written the medical way, using the medical dictionary.")
+        else:
+            self.notify("Medical dictation off", "Dictation is back to everyday writing. Turn it on again with the same shortcut.")
+
     def toggle_ai(self, *_: Any) -> None:
         enabled = not self.settings["ai_cleanup"]["enabled"]
         self.settings["ai_cleanup"]["enabled"] = enabled  # the menu tick changes right away
@@ -587,6 +610,7 @@ class App:
             # default=True: clicking the tray icon itself opens the window.
             pystray.MenuItem("Open Hyper-Wispr", self.open_settings, default=True),
             pystray.MenuItem("Copy last dictation", self.copy_last),
+            pystray.MenuItem("Medical dictation", self.toggle_medical, checked=lambda _: medical.enabled(self.settings)),
             pystray.MenuItem("AI cleanup", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
             pystray.MenuItem("Whisper mode", self.toggle_whisper, checked=lambda _: bool(self.settings["audio"].get("whisper_mode"))),
             pystray.MenuItem("Open log folder", lambda *_: _open(config.app_dir())),

@@ -1,0 +1,70 @@
+# Title: Pediatrics and neonatology
+# Description: Growth and development, neonatal terms, common childhood illnesses, vaccines and weight-based dosing.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+neonate
+newborn
+infant
+toddler
+gestational age
+corrected age
+birth weight
+*weight-based
+mg/kg
+growth chart
+percentile
+developmental milestones
+failure to thrive
+neonatal jaundice
+hyperbilirubinemia
+phototherapy
+respiratory distress syndrome
+transient tachypnea of the newborn
+bronchopulmonary dysplasia
+necrotizing enterocolitis
+retinopathy of prematurity
+patent ductus arteriosus
+neonatal sepsis
+surfactant
+caffeine citrate
+NICU
+PICU
+*bronchiolitis
+RSV
+croup
+otitis media
+pharyngitis
+tonsillitis
+gastroenteritis
+dehydration
+oral rehydration solution
+febrile seizure
+intussusception
+pyloric stenosis
+Kawasaki disease
+hand, foot and mouth disease
+varicella
+measles
+mumps
+rubella
+pertussis
+scarlet fever
+impetigo
+eczema
+atopic dermatitis
+asthma exacerbation
+nebulizer
+spacer
+amoxicillin
+cefdinir
+ondansetron
+dexamethasone
+acetaminophen
+ibuprofen
+DTaP
+MMR
+Hib
+PCV
+rotavirus vaccine
+hepatitis B vaccine
+immunizations up to date

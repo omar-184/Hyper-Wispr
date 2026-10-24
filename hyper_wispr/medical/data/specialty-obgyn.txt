@@ -1,0 +1,90 @@
+# Title: Obstetrics and gynecology
+# Description: Pregnancy, labor and delivery, obstetric scores and drugs, gynecologic conditions and procedures.
+# Source: Curated for Hyper-Wispr (MIT license).
+
+*gravida
+para
+G1P0
+G2P1
+gestational age
+last menstrual period
+LMP
+estimated due date
+EDD
+weeks gestation
+fundal height
+fetal heart rate
+fetal heart tones
+cardiotocography
+non-stress test
+biophysical profile
+amniotic fluid index
+vertex
+breech
+transverse lie
+cervical dilation
+effacement
+station
+Bishop score
+rupture of membranes
+premature rupture of membranes
+PPROM
+spontaneous vaginal delivery
+SVD
+cesarean section
+lower segment cesarean section
+LSCS
+vacuum-assisted delivery
+forceps delivery
+episiotomy
+perineal laceration
+postpartum hemorrhage
+placenta previa
+placental abruption
+preeclampsia
+eclampsia
+HELLP syndrome
+gestational diabetes
+hyperemesis gravidarum
+ectopic pregnancy
+miscarriage
+intrauterine growth restriction
+oligohydramnios
+polyhydramnios
+chorioamnionitis
+Apgar
+*oxytocin
+misoprostol
+carboprost
+methylergonovine
+magnesium sulfate
+betamethasone
+terbutaline
+nifedipine
+Rh immunoglobulin
+RhoGAM
+
+# Gynecology
+menorrhagia
+dysmenorrhea
+amenorrhea
+endometriosis
+adenomyosis
+fibroids
+leiomyoma
+polycystic ovary syndrome
+ovarian cyst
+ovarian torsion
+pelvic inflammatory disease
+cervical intraepithelial neoplasia
+Pap smear
+colposcopy
+hysteroscopy
+hysterectomy
+myomectomy
+dilation and curettage
+salpingectomy
+oophorectomy
+intrauterine device
+IUD
+transvaginal ultrasound
