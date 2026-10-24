@@ -101,13 +101,23 @@ def run(fn: Callable[[], T], default: T, timeout: float = 0.5, wait: float = 0.0
         return default
 
 
+def init_com() -> None:
+    """Set up COM on this thread (the UI Automation thread) as multithreaded, as UI Automation wants.
+    comtypes sets up COM on the thread that first imports it, single-threaded unless told otherwise,
+    and a thread can't change afterwards: when this thread was the first, every call here failed
+    ("Cannot change thread mode after it is set"), so context, the word learner and muting were off."""
+    sys.coinit_flags = 0  # COINIT_MULTITHREADED, read by comtypes when it's first imported
+    import comtypes
+
+    comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+
+
 def _uia():
     """The UI Automation object, created on (and only used from) the UI Automation thread."""
     if "uia" not in _state:
-        import comtypes
+        init_com()
         import comtypes.client
 
-        comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
         comtypes.client.GetModule("UIAutomationCore.dll")
         from comtypes.gen import UIAutomationClient as mod  # type: ignore
 
