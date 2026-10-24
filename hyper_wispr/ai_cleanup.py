@@ -181,7 +181,7 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
         log.warning("AI cleanup output rejected: it added a route or how often")
         return text
     if medical.enabled(settings) and not keeps_meaning(text, out, settings):
-        log.warning("AI cleanup output rejected: it dropped a negation, a medical term or a sentence")
+        log.warning("AI cleanup output rejected: it dropped a negation, an order, a medical term or a sentence")
         return text
     return out
 
@@ -226,6 +226,9 @@ def adds_route(before: str, after: str) -> bool:
 # Words that turn a finding or an order around: "Metoprolol no longer needed", "denies chest pain".
 _NEGATION = re.compile(r"(?<![\w'’])(?:no|not|never|none|nor|without|cannot|deny|denies|denied|negative|absent)(?![\w'’])"
                        r"|n['’]t(?!\w)", re.I)
+# Words that make an order out of a drug name: "Start apixaban" came back "Apixaban 5 mg twice a day".
+_ORDER = re.compile(r"(?<![\w'’])(?:start|stop|hold|held|continu|discontinu|restart|resum|increas|decreas|reduc|taper|wean|titrat)\w*",
+                    re.I)
 
 
 # Words a cleanup may drop or reword without losing anything: "number one, start aspirin" -> "1. Start aspirin".
@@ -238,11 +241,11 @@ _FILLER_WORDS = set(
 
 
 def keeps_meaning(before: str, after: str, settings: dict[str, Any]) -> bool:
-    """Does `after` keep every negation of `before`, every drug name and medical term, and every sentence
-    (at least half of its words)? The model can drop a sentence or a "no" as easily as a number
-    (measured: it once left out a sentence and wrote one that wasn't said). Spelling is compared by
-    letters, so "non-tender" is "nontender"."""
-    if len(_NEGATION.findall(after)) != len(_NEGATION.findall(before)):
+    """Does `after` keep every negation and order word ("start", "hold") of `before`, every drug name and
+    medical term, and every sentence (at least half of its words)? The model can drop a sentence or a
+    "no" as easily as a number (measured: it once left out a sentence and wrote one that wasn't said).
+    Spelling is compared by letters, so "non-tender" is "nontender"."""
+    if any(len(p.findall(after)) != len(p.findall(before)) for p in (_NEGATION, _ORDER)):
         return False
     letters = re.sub(r"[^a-z0-9]", "", after.lower())
     if not all(re.sub(r"[^a-z0-9]", "", term) in letters for term in medical.key_terms(before, settings)):

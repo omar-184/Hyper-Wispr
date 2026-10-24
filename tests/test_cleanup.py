@@ -204,12 +204,16 @@ def test_ai_never_drops_a_negation_or_a_drug(monkeypatch):
         ("Hi Sarah, I wanted to follow up on yesterday's meeting. Could you send me the updated schedule by Friday afternoon? Thanks again for your help.",
          "Hi Sarah,\n\nCould you send me the updated schedule by Friday afternoon? Thanks again for your help.\n\n---\n\n"
          "I meant to say, could you send me the updated schedule by Friday? Thanks again for your help."),
+        ("Start apixaban 5 mg twice a day and furosemide 40 mg intravenously.",  # measured, with medical off
+         "Apixaban 5 mg twice a day. Furosemide 40 mg intravenously."),
         ("Family is at the bedside and agrees with the plan. Hold heparin tonight and restart it in the morning.",
          "Hold heparin tonight and restart it in the morning."),
     ]:
         monkeypatch.setattr(ai_cleanup, "_post", lambda *a, answer=answer, **k: {"message": {"content": answer}})
         assert ai_cleanup.refine(said, s, context.DOCUMENT) == said
     # Rewording that keeps them is fine.
+    monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Metoprolol discontinued. Heparin held tonight."}})
+    assert ai_cleanup.refine("stop metoprolol. hold heparin tonight", s, context.DOCUMENT) == "Metoprolol discontinued. Heparin held tonight."
     monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "He does not smoke. Abdomen non-tender."}})
     assert ai_cleanup.refine("he doesn't smoke, abdomen nontender", s, context.DOCUMENT) == "He does not smoke. Abdomen non-tender."
     monkeypatch.setattr(ai_cleanup, "_post", lambda *a, **k: {"message": {"content": "Start apixaban 5 mg twice a day."}})
