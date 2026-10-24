@@ -360,7 +360,7 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
                 continue
             words = [t.group() for t in group]
             joined = "".join(words).lower().replace("’", "'")
-            if len(joined) < 7 or any(w.lower() in known for w in words):
+            if len(joined) < 7 or any(len(w) < 2 or w.lower() in known for w in words):
                 continue
             exact = lex.terms.get(joined)
             english = sum(_is_english(w) for w in words)

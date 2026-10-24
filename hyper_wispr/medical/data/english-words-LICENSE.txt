@@ -1,5 +1,6 @@
 english-words.txt.gz lists the words of the en_US Hunspell dictionary, version 2020.12.07
-(https://github.com/LibreOffice/dictionaries/tree/master/en), lowercased, without affix flags.
+(https://github.com/LibreOffice/dictionaries/tree/master/en), expanded with its affix rules
+(en_US.aff) into every word form, lowercased.
 Hyper-Wispr uses it only to avoid 'correcting' ordinary English words into drug names.
 
 COPYRIGHT, SOURCES, and CREDITS:
