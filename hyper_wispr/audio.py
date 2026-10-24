@@ -120,24 +120,30 @@ class Recorder:
 
 # ---- chimes -------------------------------------------------------------
 
-# (start Hz, end Hz, milliseconds, volume). Soft sine glides, generated so no sound files ship.
+# Each sound is a few soft notes: (pitch Hz, starts at ms, rings for ms, volume). Every note is a
+# sine with a faint octave above it, a gentle fade-in and a long natural fade-out, which sounds like
+# a soft mallet rather than a beep. Generated here so no sound files ship.
 _CHIMES = {
-    "start": [(660, 880, 90, 0.25)],
-    "stop": [(880, 660, 90, 0.25)],
-    "error": [(440, 440, 70, 0.2), (0, 0, 40, 0), (330, 330, 110, 0.2)],
+    # Two low notes a fifth apart, rising: "ready, listening".
+    "start": [(523.25, 0, 260, 0.11), (783.99, 70, 300, 0.09)],
+    # The same two notes falling: "got it".
+    "stop": [(783.99, 0, 240, 0.09), (523.25, 60, 280, 0.10)],
+    "error": [(392.0, 0, 200, 0.12), (311.13, 120, 300, 0.12)],
 }
 
 
-def _tone_wav(parts: list[tuple[int, int, int, float]], rate: int = 44100) -> bytes:
-    pieces = []
-    for f0, f1, ms, vol in parts:
+def _tone_wav(notes: list[tuple[float, int, int, float]], rate: int = 44100) -> bytes:
+    length = max(start + ms for _, start, ms, _ in notes) / 1000
+    out = np.zeros(int(rate * length) + 1)
+    for freq, start, ms, vol in notes:
         n = int(rate * ms / 1000)
         t = np.arange(n) / rate
-        freq = np.linspace(f0, f1, n)
-        phase = 2 * np.pi * np.cumsum(freq) / rate
-        env = np.minimum(1.0, np.minimum(t / 0.008, (n / rate - t) / 0.03))  # click-free fades
-        pieces.append(vol * np.sin(phase) * np.clip(env, 0, 1))
-    pcm = (np.concatenate(pieces) * 32767).astype("<i2").tobytes()
+        tone = np.sin(2 * np.pi * freq * t) + 0.12 * np.sin(4 * np.pi * freq * t)
+        attack = np.minimum(1.0, t / 0.012)  # 12 ms fade-in: no click, no hard edge
+        decay = np.exp(-t / (ms / 1000 / 4.5))  # rings out to silence by the end of the note
+        i = int(rate * start / 1000)
+        out[i:i + n] += vol * tone * attack * decay
+    pcm = (np.clip(out, -1, 1) * 32767).astype("<i2").tobytes()
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)

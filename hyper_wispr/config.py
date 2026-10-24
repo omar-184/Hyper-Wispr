@@ -84,6 +84,8 @@ DEFAULTS: dict[str, Any] = {
     "history": {"enabled": True, "keep_audio": False},
     # The floating "Listening…" pill while you dictate. position: "bottom" or "top" of the screen.
     "overlay": {"enabled": True, "position": "bottom"},
+    # Look for a newer version on GitHub (at most once a day, when the window opens).
+    "updates": {"check_automatically": True},
 }
 
 

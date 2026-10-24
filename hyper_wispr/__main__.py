@@ -14,7 +14,8 @@ def main() -> None:
     parser.add_argument("--transcribe", metavar="AUDIO_FILE", help="transcribe a file and print the cleaned text, then exit")
     parser.add_argument("--app-type", default=context.OTHER, help="writing style to use with --transcribe")
     parser.add_argument("--self-test", action="store_true", help="check that all components load, then exit (used by the build)")
-    parser.add_argument("--settings", action="store_true", help="open the Settings window (the tray app does this for you)")
+    parser.add_argument("--minimized", action="store_true", help="start in the tray without opening the window (used at login)")
+    parser.add_argument("--settings", action="store_true", help="open the Hyper-Wispr window (the tray app does this for you)")
     parser.add_argument("--settings-self-test", action="store_true", help="open the Settings window, check it works, close it (used by the build)")
     parser.add_argument("--overlay-self-test", action="store_true", help="flash the listening indicator, then exit (used by the build)")
     parser.add_argument("--version", action="version", version=__version__)
@@ -50,12 +51,12 @@ def main() -> None:
 
     if not acquire_single_instance():
         # Starting it again from the Start menu or desktop means "show me Hyper-Wispr".
-        logging.info("Already running; showing the Settings window instead")
-        sys.exit(open_settings_window())
+        logging.info("Already running; showing the window instead")
+        sys.exit(0 if args.minimized else open_settings_window())
 
     from .app import App
 
-    App().run()
+    App(open_window=not args.minimized).run()
 
 
 _instance_lock = None

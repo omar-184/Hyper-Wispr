@@ -23,7 +23,7 @@ but is written from scratch and uses open-source models:
    **More info → Run anyway** (the installer isn't code-signed).
 3. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
    Hyper-Wispr downloads its AI model automatically.
-4. A round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
+4. The Hyper-Wispr window opens on its dashboard, and a round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
    Grey = loading, blue = ready, red = listening, amber = working. The first start downloads the
    speech model once (about 0.5 to 1.6 GB), so it stays grey for a few minutes.
 
@@ -42,23 +42,30 @@ Download the code (green **Code** button → **Download ZIP**), unzip it, double
 | Say "new line", "new paragraph", "comma", "period", "question mark" | Inserts that punctuation |
 | Say "scratch that" | Deletes the sentence you just said |
 | Tray icon → **Copy last dictation** | Puts your previous dictation on the clipboard; paste it with Ctrl+V |
-| Start Hyper-Wispr again while it's running | Opens the Settings window |
+| Start Hyper-Wispr (Start menu or desktop) | Opens the Hyper-Wispr window; closing it keeps dictation running in the tray |
 
 ## Customize
 
-Click the tray icon (or right-click → **Settings…**) to open the Settings window:
+Click the tray icon (or right-click → **Open Hyper-Wispr**) to open the window:
+
+- **Dashboard**: whether it's ready, words dictated today and this week, time saved, speaking speed,
+  the last 14 days, recent dictations and quick switches.
 
 - **General**: change the shortcut by pressing the keys you want, pick and test your microphone, sounds, paste or type.
 - **Speech**: speech model, English with optional Arabic (or other languages), GPU or processor.
 - **AI cleanup**: turn the Ollama step on or off, medical mode, which model, your own extra instructions.
 - **Vocabulary**: dictionary words, replacements, snippets, filler words.
 - **History**: your recent dictations with a copy button.
+- **About & updates**: checks GitHub for a newer version (once a day, can be turned off), downloads the
+  right installer for your PC and installs it in place. Settings, history and the speech model are kept.
+
+When started at login it waits in the tray instead of opening the window.
 
 Changes save immediately and the running app applies them within a second (a new speech model loads in the
 background while the old one keeps working).
 
 Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which you can also edit by hand
-(Settings → About → Open file). For example:
+(About & updates → Open file). For example:
 
 ```json
 {
@@ -105,5 +112,5 @@ installers as a GitHub Release.
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
 `speech.py` (Whisper), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
-`paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history), `app.py` (tray app tying it together), `settings_ui/` (the Settings window:
+`paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history), `app.py` (tray app tying it together), `updates.py` (update check and install), `settings_ui/` (the window:
 a pywebview page in `web/`, run as a separate process with `--settings`).
