@@ -5,9 +5,6 @@ name: Benchmark
 # card. Start it by hand from the Actions tab; the numbers are on the run's summary page.
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/project-thread-9spmi6]
-    paths: [packaging/benchmark.py, .github/workflows/benchmark.yml]
 
 jobs:
   benchmark:
