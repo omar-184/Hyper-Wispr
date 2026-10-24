@@ -657,7 +657,7 @@ function aiPage() {
       row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
     ]),
     section("Writing", [
-      row("Medical mode", "Keeps drug names, doses, units and clinical abbreviations exact (\"metoprolol 25 mg PO BID\").", toggle("ai_cleanup.medical_mode"), { disabled: off }),
+      row("Medical mode", "Keeps drug names, doses, units and clinical abbreviations exact (\"metoprolol 25 mg PO BID\"). If you correct a number out loud, both numbers are kept; say \"scratch that\" and repeat the sentence instead.", toggle("ai_cleanup.medical_mode"), { disabled: off }),
       row("Model", "Larger models write better but take longer. qwen2.5:3b is a good start.",
         modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
       h("div", { class: "row stack" + (off ? " disabled" : "") },
