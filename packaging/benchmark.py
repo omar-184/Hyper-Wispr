@@ -124,11 +124,13 @@ def settings(**over) -> dict:
 
 
 class Meter:
-    """Wall time, processor time and peak memory of some processes while a block runs."""
+    """Wall time, processor time and peak memory of some processes while a block runs.
+    machine: also the whole computer's, for work done in processes we don't know (Ollama's)."""
 
-    def __init__(self, procs=None, every: float = 0.1):
+    def __init__(self, procs=None, every: float = 0.1, machine: bool = False):
         self.procs = procs or (lambda: [psutil.Process()])
         self.every = every
+        self.machine = machine
 
     def _poll(self, first: bool = False) -> None:
         rss = 0
@@ -144,6 +146,8 @@ class Meter:
             self.last[p.pid] = total
         self.peak = max(self.peak, rss)
         self.rss = rss
+        if self.machine:
+            self.machine_peak = max(getattr(self, "machine_peak", 0), psutil.virtual_memory().used)
 
     def _run(self) -> None:
         while not self._stop.wait(self.every):
@@ -151,6 +155,9 @@ class Meter:
 
     def __enter__(self):
         self.base, self.last, self.peak, self.rss = {}, {}, 0, 0
+        if self.machine:
+            self.machine_start, self.machine_peak = psutil.virtual_memory().used, 0
+            self.cpu_start = psutil.cpu_times()
         self._poll(first=True)
         self.start_rss = self.rss
         self.t0 = time.perf_counter()
@@ -165,15 +172,23 @@ class Meter:
         self._thread.join()
         self._poll()
         self.cpu_seconds = sum(self.last[p] - self.base.get(p, 0.0) for p in self.last)
+        if self.machine:
+            a, b = self.cpu_start, psutil.cpu_times()
+            busy = (sum(b) - b.idle) - (sum(a) - a.idle)
+            self.machine_cores = busy / self.seconds if self.seconds else 0
         return False
 
     def dict(self) -> dict:
-        return {
+        out = {
             "seconds": round(self.seconds, 3),
             "cores_busy": round(self.cpu_seconds / self.seconds, 2) if self.seconds else 0,
             "peak_mb": round(self.peak / 2**20),
             "end_mb": round(self.rss / 2**20),
         }
+        if self.machine:
+            out["machine_cores_busy"] = round(self.machine_cores, 2)
+            out["machine_mb_added_peak"] = round((self.machine_peak - self.machine_start) / 2**20)
+        return out
 
 
 def mb(proc=None) -> float:
@@ -267,10 +282,22 @@ def _rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(x)))) if len(x) else 0.0
 
 
+def decode_audio(path: str, sampling_rate: int = RATE) -> np.ndarray:
+    """An audio file as 16 kHz mono floats. faster-whisper has one, but it passes PyAV an argument
+    that PyAV 19 no longer takes (the app never decodes files, so only this script needs one)."""
+    import av
+
+    chunks = []
+    with av.open(path) as container:
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=sampling_rate)
+        for frame in container.decode(audio=0):
+            chunks += [f.to_ndarray() for f in resampler.resample(frame)]
+        chunks += [f.to_ndarray() for f in resampler.resample(None)]
+    return (np.concatenate(chunks, axis=1).reshape(-1) / 32768.0).astype(np.float32)
+
+
 @section("audio")
 def make_audio(res: dict, folder: Path) -> dict[str, np.ndarray]:
-    from faster_whisper import decode_audio
-
     folder.mkdir(parents=True, exist_ok=True)
     clips: dict[str, np.ndarray] = {}
     engine = "edge-tts"
@@ -521,65 +548,110 @@ class _Warnings(logging.Handler):
         self.seen.append(record.getMessage())
 
 
+# The AI instructions before this audit, rebuilt from today's: the medical rule's example ("5 mg PO
+# BID") was copied into dictations that never said it, and nothing asked for plain text.
+OLD_PROMPT = [
+    ("\n- Plain text only: no markdown, no asterisks, no bold.", ""),
+    ("Keep every number, dose, unit, frequency and route as spoken. Never add a route, frequency or unit that wasn't said.",
+     'Keep every number, dose, unit, frequency and route exactly as spoken (e.g. "5 mg PO BID").'),
+]
+
+
+def _ai_checks(said: str, out: str) -> dict:
+    from hyper_wispr import ai_cleanup
+
+    return {"markdown": "**" in out or "  \n" in out, "added_route": ai_cleanup.adds_route(said, out),
+            "lines_added": out.count("\n") - said.count("\n"), "numbers_kept": ai_cleanup.numbers_kept(said, out, exact=True)}
+
+
+def _ollama_snapshot() -> list:
+    out = []
+    for p in psutil.process_iter(["name", "pid", "ppid", "memory_info"]):
+        name = (p.info["name"] or "").lower()
+        rss = p.info["memory_info"].rss if p.info["memory_info"] else 0
+        if "llama" in name or "ollama" in name or rss > 400 * 2**20:
+            out.append({"name": p.info["name"], "pid": p.info["pid"], "ppid": p.info["ppid"], "mb": round(rss / 2**20)})
+    return out
+
+
 @section("ai_cleanup")
 def bench_ai(res: dict, texts: dict) -> None:
-    from hyper_wispr import ai_cleanup
+    from hyper_wispr import ai_cleanup, cleanup, medical
 
     s = settings(ai_cleanup__enabled=True)
     if not ai_cleanup.is_available(s):
         raise RuntimeError("Ollama isn't running")
-    base = s["ai_cleanup"]["ollama_url"]
+    base = s["ai_cleanup"]["ollama_url"].rstrip("/")
     model = s["ai_cleanup"]["model"]
     res["model"] = model
+    # What the app hands the AI: the transcript after the basic cleanup and the medical fixes.
+    inputs = {name: cleanup.apply_style(medical.fix(cleanup.clean(text, s), s), "formal") for name, text in texts.items()}
+    inputs["long"] = cleanup.apply_style(medical.fix(cleanup.clean(" ".join(CLIPS[k] for k in MEDICAL), s), s), "formal")
     res["server_idle_mb"] = round(sum(mb(p) for p in ollama_procs()))
-    with Meter(ollama_procs) as m:
-        ai_cleanup.warm_up(s)
+    with Meter(ollama_procs, machine=True) as m:
+        ai_cleanup.warm_up(s, "document")
     res["warm_up"] = m.dict()
-    res["server_loaded_mb"] = round(sum(mb(p) for p in ollama_procs()))
+    res["processes_loaded"] = _ollama_snapshot()
     catcher = _Warnings()
     logging.getLogger("hyper_wispr").addHandler(catcher)
     rows = []
-    for name, text in texts.items():
+    for name, text in inputs.items():
         if not text or len(text.split()) < s["ai_cleanup"]["min_words"]:
             continue
         catcher.seen.clear()
-        with Meter(ollama_procs) as m:
+        with Meter(ollama_procs, machine=True) as m:
             out = ai_cleanup.refine(text, s, "document")
-        row = {"clip": name, "words": len(text.split()), "app_8s": m.dict(), "app_used_ai": not catcher.seen,
+        row = {"clip": name, "words": len(text.split()), "app": m.dict(), "app_used_ai": not catcher.seen,
                "app_warnings": list(catcher.seen), "input": text, "app_output": out}
-        system = ai_cleanup.build_system_prompt(s, "document", "", text)
-        payload = {"model": model, "stream": False, "keep_alive": "30m", "options": {"temperature": 0},
-                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": f"<dictation>\n{text}\n</dictation>"}]}
-        t = time.perf_counter()
-        r = ai_cleanup._post(base.rstrip("/") + "/api/chat", payload, 600)
-        content = r["message"]["content"].strip().removeprefix("<dictation>").removesuffix("</dictation>").strip()
-        row.update({
-            "no_limit_s": round(time.perf_counter() - t, 2),
-            "prompt_tokens": r.get("prompt_eval_count"), "prompt_s": round(r.get("prompt_eval_duration", 0) / 1e9, 2),
-            "output_tokens": r.get("eval_count"), "output_s": round(r.get("eval_duration", 0) / 1e9, 2),
-            "load_s": round(r.get("load_duration", 0) / 1e9, 2),
-            "no_limit_output": content,
-            "numbers_kept": ai_cleanup.numbers_kept(text, content, exact=True),
-            "terms_missing": terms_found(name, content),
-        })
+        # The same dictation without the app's checks or time limit, with today's and the old instructions.
+        new_system = ai_cleanup.build_system_prompt(s, "document", "", text)
+        old_system = new_system
+        for a, b in OLD_PROMPT:
+            old_system = old_system.replace(a, b)
+        for label, system in (("new", new_system), ("old", old_system)):
+            payload = {"model": model, "stream": False, "keep_alive": "30m", "options": {"temperature": 0},
+                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": f"<dictation>\n{text}\n</dictation>"}]}
+            t = time.perf_counter()
+            r = ai_cleanup._post(base + "/api/chat", payload, 600)
+            content = r["message"]["content"].strip().removeprefix("<dictation>").removesuffix("</dictation>").strip()
+            row[label] = {"seconds": round(time.perf_counter() - t, 2), "output_tokens": r.get("eval_count"),
+                          "output_s": round(r.get("eval_duration", 0) / 1e9, 2),
+                          "prompt_tokens": r.get("prompt_eval_count"), "prompt_s": round(r.get("prompt_eval_duration", 0) / 1e9, 2),
+                          "output": content, **_ai_checks(text, content)}
+        row["app_checks"] = _ai_checks(text, out)
         rows.append(row)
-        print(f"  {name}: app {row['app_8s']['seconds']}s (AI used: {row['app_used_ai']}), no limit {row['no_limit_s']}s", flush=True)
+        print(f"  {name}: app {row['app']['seconds']}s (AI used: {row['app_used_ai']}); "
+              f"new {row['new']['seconds']}s {row['new']['output']!r}; old {row['old']['output']!r}", flush=True)
     res["rows"] = rows
-    selected = CLIPS["m3"]
-    with Meter(ollama_procs) as m:
+    out_s = sum(r["new"]["output_s"] for r in rows)
+    res["words_per_second"] = round(sum(len(r["new"]["output"].split()) for r in rows) / out_s, 1) if out_s else None
+    with Meter(ollama_procs, machine=True) as m:
         try:
-            out = ai_cleanup.command("make this shorter", selected, s)
+            out = ai_cleanup.command("make this shorter", CLIPS["m3"], s)
         except ai_cleanup.CommandError as e:
             out = f"refused: {e}"
     res["command"] = {**m.dict(), "output": out}
-    # The first dictation after 30 minutes without one: Ollama has let the model go by then.
-    ai_cleanup._post(base.rstrip("/") + "/api/generate", {"model": model, "keep_alive": 0}, 60)
-    time.sleep(3)
+
+    # After 30 minutes without a dictation Ollama lets the model go. The first dictation then:
+    def let_go() -> None:
+        ai_cleanup._post(base + "/api/generate", {"model": model, "keep_alive": 0}, 60)
+        time.sleep(3)
+        ai_cleanup._last_answer = ai_cleanup._last_warm_up = float("-inf")
+
+    first = inputs.get("m1_0") or CLIPS["m1"]
+    let_go()
     catcher.seen.clear()
-    first = texts.get("m1_0") or CLIPS["m1"]
-    with Meter(ollama_procs) as m:
+    with Meter(ollama_procs, machine=True) as m:
         ai_cleanup.refine(first, s, "document")
-    res["after_idle"] = {**m.dict(), "used_ai": not catcher.seen, "warnings": list(catcher.seen)}
+    res["after_idle_no_warm_up"] = {**m.dict(), "used_ai": not catcher.seen, "warnings": list(catcher.seen)}
+    # ... and as the app does it now: loading starts when the keys go down, while the speaker talks.
+    let_go()
+    catcher.seen.clear()
+    ai_cleanup.prewarm(s, "document")
+    time.sleep(6)  # talking, then the speech model
+    with Meter(ollama_procs, machine=True) as m:
+        ai_cleanup.refine(first, s, "document")
+    res["after_idle_with_warm_up"] = {**m.dict(), "used_ai": not catcher.seen, "warnings": list(catcher.seen)}
     logging.getLogger("hyper_wispr").removeHandler(catcher)
     ai_cleanup.warm_up(s)
 
@@ -791,10 +863,32 @@ def bench_paste(res: dict, desk: Desktop, notepad) -> None:
         desk.u.ActivateKeyboardLayout(us, 0)
 
 
+_COM_PROBE = r"""
+import json, sys, threading
+out = {}
+def job():
+    try:
+        if sys.argv[1] == "fixed":
+            sys.coinit_flags = 0
+        import comtypes
+        comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+        out["ok"] = True
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+t = threading.Thread(target=job); t.start(); t.join()
+print(json.dumps(out))
+"""
+
+
 @section("text_box_reading")
 def bench_uia(res: dict, desk: Desktop, notepad) -> None:
     """UI Automation: the text around the cursor (context), and what the word learner reads."""
     from hyper_wispr import uia
+
+    # A fresh Python where, as in the app, the UI Automation thread is the first to import comtypes.
+    for way in ("before_fix", "fixed"):
+        probe = subprocess.run([sys.executable, "-c", _COM_PROBE, way], capture_output=True, text=True, timeout=120)
+        res[f"com_setup_{way}"] = json.loads(probe.stdout or "{}") or probe.stderr[-300:]
 
     top, edit = notepad
     desk.focus(top)
@@ -965,6 +1059,15 @@ def app_driver(ctl: Path) -> None:
             return "benchmark clips"
 
     app_module.Recorder = BenchRecorder
+    start_recording = app_module.App.start_recording
+
+    def start_and_note_focus(self) -> None:  # what the app read from the text box (sizes only)
+        start_recording(self)
+        f = self.focus
+        with (ctl / "focus.jsonl").open("a", encoding="utf-8") as out:
+            out.write(json.dumps({"known": f.known, "editable": f.editable, "before_chars": len(f.before)}) + "\n")
+
+    app_module.App.start_recording = start_and_note_focus
     sys.argv = ["hyper-wispr", "--minimized"]
     __main__.main()
 
@@ -1073,6 +1176,8 @@ def bench_app(res: dict, clips: dict, desk: Desktop, notepad) -> None:
         runs.append(dictate("m2_0") | {"ai": False})
         runs.append(dictate("m6_0") | {"ai": False})
         res["runs"] = runs
+        focus_log = ctl / "focus.jsonl"
+        res["text_box_read_by_app"] = [json.loads(x) for x in focus_log.read_text().splitlines()] if focus_log.exists() else []
         # Idle again, while the word learner watches the last text box for a minute.
         with Meter(app, every=0.5) as m:
             time.sleep(30)
@@ -1114,11 +1219,16 @@ def summary() -> str:
     ai = R.get("ai_cleanup", {})
     if ai.get("rows"):
         out += ["", f"## AI cleanup ({ai.get('model')}): warm-up {ai.get('warm_up', {}).get('seconds')} s, "
-                f"{ai.get('server_loaded_mb')} MB", "", "| clip | app (8 s limit) s | AI used | no limit s | prompt tok | out tok |",
-                "|---|---|---|---|---|---|"]
+                f"{ai.get('words_per_second')} words/s", "",
+                "| clip | words | app s | AI used | new: markdown, added route | old: markdown, added route | new output |",
+                "|---|---|---|---|---|---|---|"]
         for r in ai["rows"]:
-            out.append(f"| {r['clip']} | {r['app_8s']['seconds']} | {r['app_used_ai']} | {r['no_limit_s']} | "
-                       f"{r['prompt_tokens']} | {r['output_tokens']} |")
+            n, o = r["new"], r["old"]
+            out.append(f"| {r['clip']} | {r['words']} | {r['app']['seconds']} | {r['app_used_ai']} | {n['markdown']}, {n['added_route']} | "
+                       f"{o['markdown']}, {o['added_route']} | {n['output'][:80]!r} |")
+        for key in ("after_idle_no_warm_up", "after_idle_with_warm_up"):
+            if key in ai:
+                out.append(f"- {key}: {ai[key]['seconds']} s, AI used: {ai[key]['used_ai']}")
     app = R.get("app", {})
     if app.get("runs"):
         out += ["", f"## Whole app: ready {app.get('start_to_ready_s')} s, idle {app.get('idle_30s')}", "",
@@ -1149,9 +1259,11 @@ def main() -> None:
         bench_medical()
     if "history" not in skip:
         bench_history(work / "history")
-    texts = bench_speech(clips) if "speech" not in skip else None
+    if "speech" not in skip:
+        bench_speech(clips)
     if "ai" not in skip:
-        bench_ai(texts or {k: CLIPS[k.split("_")[0]] for k in AI_CLIPS})
+        # The sentences as written, not as heard, so runs can be compared.
+        bench_ai({k: CLIPS[k.split("_")[0]] for k in AI_CLIPS})
     if "turbo" not in skip:
         bench_turbo(clips)
     if "overlay" not in skip:
