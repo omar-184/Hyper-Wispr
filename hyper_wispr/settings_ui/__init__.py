@@ -632,6 +632,36 @@ def focus_window(wait: float = 0.0) -> bool:
     return True
 
 
+WINDOW_SIZE = (1240, 820)
+
+
+def fit_window(width: int, height: int, room_w: float, room_h: float) -> tuple[int, int]:
+    """The window's size, smaller where the screen has less room (all in display-scaled pixels):
+    a 1080p laptop at 150% has about 1280 x 680, and a taller window opened with its title bar
+    above the top of the screen, where it can't be grabbed."""
+    margin = 16
+    return int(min(width, room_w - margin)), int(min(height, room_h - margin))
+
+
+def _work_area() -> tuple[float, float] | None:
+    """The main screen's size without the taskbar, in display-scaled pixels as pywebview sizes windows."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        rect = wintypes.RECT()
+        if not user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0):  # SPI_GETWORKAREA
+            return None
+        # Both are scaled, or neither, depending on whether this process is DPI aware yet.
+        scale = (user32.GetDpiForSystem() or 96) / 96
+        return (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale
+    except Exception:
+        return None
+
+
 def _windows_dark_mode() -> bool:
     if sys.platform != "win32":
         return False
@@ -664,13 +694,15 @@ def run(self_test: bool = False) -> int:
     import webview
 
     api = Api()
+    room = _work_area()
+    width, height = fit_window(*WINDOW_SIZE, *room) if room else WINDOW_SIZE
     window = webview.create_window(
         WINDOW_TITLE,
         url=(WEB_DIR / "index.html").as_uri(),
         js_api=api,
-        width=1240,
-        height=820,
-        min_size=(760, 560),
+        width=width,
+        height=height,
+        min_size=(min(760, width), min(560, height)),
         # Matches the page background so the window doesn't flash white in dark mode.
         background_color="#1c1c1e" if _windows_dark_mode() else "#f5f5f7",
     )

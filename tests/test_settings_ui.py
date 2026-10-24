@@ -148,3 +148,12 @@ def test_speech_page_says_why_the_graphics_card_is_not_used(data_dir, monkeypatc
     assert Api().gpu_status() == {"usable": True, "card": "NVIDIA GeForce RTX 3060", "reason": ""}
     monkeypatch.setattr(gpu_pack, "nvidia_cards", lambda: [])
     assert Api().gpu_status() == {"usable": False, "card": "", "reason": ""}
+
+
+def test_the_window_fits_a_small_or_scaled_screen():
+    from hyper_wispr.settings_ui import WINDOW_SIZE, fit_window
+
+    assert fit_window(*WINDOW_SIZE, 2560, 1400) == WINDOW_SIZE
+    assert fit_window(*WINDOW_SIZE, 1366, 728) == (1240, 712)  # 1366 x 768 at 100%
+    assert fit_window(*WINDOW_SIZE, 1280, 680) == (1240, 664)  # 1920 x 1080 at 150%
+    assert fit_window(*WINDOW_SIZE, 1097, 576) == (1081, 560)  # 1920 x 1080 at 175%
