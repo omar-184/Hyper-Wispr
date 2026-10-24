@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 TEXT_PATTERN = 10014
+TEXT_PATTERN2 = 10024
 VALUE_PATTERN = 10002
 START, END = 0, 1  # TextPatternRangeEndpoint
 CHARACTER = 0  # TextUnit_Character
@@ -134,6 +135,23 @@ def _pattern(element, pattern_id: int, interface):
         return None
 
 
+def _selection(element, text, mod):
+    """The selected text, or where the cursor is when nothing is selected: some text boxes give no
+    selection at all for a bare cursor, so ask for the cursor itself then."""
+    selection = text.GetSelection()
+    if selection and selection.Length:
+        return selection.GetElement(0)
+    interface = getattr(mod, "IUIAutomationTextPattern2", None)
+    text2 = _pattern(element, TEXT_PATTERN2, interface) if interface is not None else None
+    if text2 is None:
+        return None
+    try:
+        caret = text2.GetCaretRange()  # (is the cursor blinking, its range)
+    except Exception:
+        return None
+    return caret[-1] if isinstance(caret, tuple) else caret
+
+
 def _read_focus(before_chars: int, after_chars: int) -> Focus:
     uia, mod = _uia()
     element = uia.GetFocusedElement()
@@ -150,10 +168,9 @@ def _read_focus(before_chars: int, after_chars: int) -> Focus:
         focus.editable = False
     if focus.password or text is None:
         return focus  # never read a password box
-    selection = text.GetSelection()
-    if not selection or selection.Length == 0:
+    sel = _selection(element, text, mod)
+    if sel is None:
         return focus
-    sel = selection.GetElement(0)
     focus.selected = sel.GetText(20000) or ""
     before = sel.Clone()
     before.MoveEndpointByRange(END, sel, START)
