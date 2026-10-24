@@ -226,7 +226,7 @@ def test_big_log_is_set_aside(tmp_path):
 # ---- safety net --------------------------------------------------------------
 
 def test_dictation_with_no_text_box_goes_to_the_clipboard(monkeypatch):
-    from tests.test_app import FakeHistory, FakeTranscriber, bare_app
+    from test_app import FakeHistory, FakeTranscriber, bare_app
 
     a = bare_app(transcriber=FakeTranscriber(), history=FakeHistory())
     pasted, copied = [], []
