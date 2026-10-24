@@ -490,6 +490,8 @@ _UNIT_WORDS = {
     "milliequivalent": "mEq", "milliequivalents": "mEq", "millimole": "mmol", "millimoles": "mmol",
     "millimeter": "mm", "millimeters": "mm", "millimetre": "mm", "millimetres": "mm", "centimeter": "cm",
     "centimeters": "cm", "centimetre": "cm", "centimetres": "cm", "nanogram": "ng", "nanograms": "ng",
+    "deciliter": "dL", "deciliters": "dL", "decilitre": "dL", "decilitres": "dL", "square meter": "m²",
+    "square meters": "m²", "square metre": "m²", "square metres": "m²",
     "hour": "h", "hours": "h", "minute": "min", "minutes": "min", "kg": "kg", "mg": "mg", "mcg": "mcg", "ml": "mL",
 }
 _UNIT_PHRASES = [
@@ -500,18 +502,23 @@ _UNIT_PHRASES = [
     (r"degrees? celsius", "°C"),
     (r"degrees? fahrenheit", "°F"),
 ]
-_NUM = r"\d+(?:\.\d+)?"
+_NUM = r"(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)"
+
+
+def _zero(number: str) -> str:
+    """".5" -> "0.5": a dose without its leading zero is read as 5 (on The Joint Commission's "do not use" list)."""
+    return "0" + number if number.startswith(".") else number
 
 
 def format_units(text: str) -> str:
     """"25 milligrams" -> "25 mg", "5 micrograms per kilogram per minute" -> "5 mcg/kg/min",
-    "120 over 80" -> "120/80". Numbers themselves are never changed."""
+    "120 over 80" -> "120/80". Numbers keep their value; ".5 mg" gets its leading zero."""
     for phrase, unit in _UNIT_PHRASES:
         sep = "" if unit in ("%", "°C", "°F") else " "
-        text = re.sub(rf"({_NUM})\s*(?:{phrase})\b", lambda m, u=unit, s=sep: m.group(1) + s + u, text, flags=re.IGNORECASE)
+        text = re.sub(rf"({_NUM})\s*(?:{phrase})\b", lambda m, u=unit, s=sep: _zero(m.group(1)) + s + u, text, flags=re.IGNORECASE)
     units = "|".join(sorted(map(re.escape, _UNIT_WORDS), key=len, reverse=True))
     # Hours and minutes are durations ("for 2 hours"): only shortened as part of a rate.
-    rate = re.compile(rf"\b({_NUM})\s+({units})((?:\s+per\s+(?:{units}))*)\b", re.IGNORECASE)
+    rate = re.compile(rf"({_NUM})\s+({units})((?:\s+per\s+(?:{units}))*)\b", re.IGNORECASE)
 
     def unit_of(word: str) -> str:
         return _UNIT_WORDS[word.lower()]
@@ -521,7 +528,7 @@ def format_units(text: str) -> str:
         pers = re.findall(rf"per\s+({units})", m.group(3) or "", flags=re.IGNORECASE)
         if unit_of(first) in ("h", "min") and not pers:
             return m.group(0)
-        return m.group(1) + " " + "/".join([unit_of(first)] + [unit_of(p) for p in pers])
+        return _zero(m.group(1)) + " " + "/".join([unit_of(first)] + [unit_of(p) for p in pers])
 
     text = rate.sub(repl, text)
     # Blood pressure: "BP 120 over 80" (only after "BP" or "pressure", or before "mmHg").

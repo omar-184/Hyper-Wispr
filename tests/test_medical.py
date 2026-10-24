@@ -149,6 +149,10 @@ def test_switches_for_each_fix():
     ("sats 95 percent", "sats 95%"),
     ("temperature 38.5 degrees Celsius", "temperature 38.5°C"),
     ("give 1 gram", "give 1 g"),
+    ("give .5 milligrams IV", "give 0.5 mg IV"),
+    ("albumin 3.5 grams per deciliter", "albumin 3.5 g/dL"),
+    ("75 milligrams per square meter", "75 mg/m²"),
+    ("12.5 milligrams and 1,000 milligrams", "12.5 mg and 1,000 mg"),
 ])
 def test_units_are_written_the_standard_way(heard, written):
     assert medical.format_units(heard) == written
