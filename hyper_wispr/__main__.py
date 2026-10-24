@@ -21,7 +21,10 @@ def main() -> None:
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args()
 
-    handlers: list[logging.Handler] = [logging.FileHandler(config.app_dir() / "hyper-wispr.log", encoding="utf-8")]
+    log_path = config.app_dir() / "hyper-wispr.log"
+    if not (args.settings or args.settings_self_test):
+        trim_log(log_path)
+    handlers: list[logging.Handler] = [logging.FileHandler(log_path, encoding="utf-8")]
     if sys.stdout is not None:  # None when started without a console (pythonw)
         handlers.append(logging.StreamHandler(sys.stdout))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=handlers)
@@ -57,6 +60,20 @@ def main() -> None:
     from .app import App
 
     App(open_window=not args.minimized).run()
+
+
+LOG_LIMIT = 5_000_000  # bytes
+
+
+def trim_log(path, limit: int = LOG_LIMIT) -> None:
+    """Keep the log from growing forever: past the limit it becomes hyper-wispr.old.log (replacing
+    the previous one) and a new log starts. Done at start-up, before anything has the file open;
+    a rotating log handler can't be used because the Settings window writes to the same file."""
+    try:
+        if path.stat().st_size > limit:
+            path.replace(path.with_name("hyper-wispr.old.log"))
+    except OSError:
+        pass  # no log yet, or the Settings window has it open: try again next start
 
 
 _instance_lock = None
@@ -104,6 +121,15 @@ def self_test() -> int:
         from .speech import cuda_available
 
         get_speech_timestamps(np.zeros(16000, dtype=np.float32))
+        if sys.platform == "win32":
+            import pycaw.pycaw  # noqa: F401
+
+            from . import secure, uia
+
+            if not uia.self_test():
+                raise RuntimeError("UI Automation could not be loaded")
+            if secure.decrypt(secure.encrypt(b"test")) != b"test":
+                raise RuntimeError("Encryption round trip failed")
         logging.info("Self-test OK: ctranslate2 %s, CUDA devices: %s", ctranslate2.__version__, cuda_available())
         return 0
     except Exception:
