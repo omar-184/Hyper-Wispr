@@ -31,6 +31,16 @@ def test_gpu_compute_fallbacks(monkeypatch):
     assert (model, device, computes) == ("large-v3-turbo", "cuda", ["int8_float32", "float32"])
 
 
+def test_float32_only_gpu_uses_processor(monkeypatch):
+    # Cards like the GeForce MX130 only offer float32 and can't run the model on the GPU.
+    monkeypatch.setattr(speech, "cuda_available", lambda: True)
+    monkeypatch.setattr(speech, "gpu_compute_types", lambda: ["float32"])
+    assert not speech.usable_gpu()
+    assert speech.resolve({"model": "auto", "device": "auto", "compute_type": "auto"}) == ("small", "cpu", ["int8"])
+    # Choosing the GPU in Settings still tries it.
+    assert speech.resolve({"model": "auto", "device": "cuda", "compute_type": "auto"}) == ("large-v3-turbo", "cuda", ["float32"])
+
+
 def test_cpu_defaults(monkeypatch):
     monkeypatch.setattr(speech, "cuda_available", lambda: False)
     assert speech.resolve({"model": "auto", "device": "auto", "compute_type": "auto"}) == ("small", "cpu", ["int8"])

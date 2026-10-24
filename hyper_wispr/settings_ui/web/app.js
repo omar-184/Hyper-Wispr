@@ -759,7 +759,7 @@ function languageSummary() {
 function speechPage() {
   const auto = S.gpu === null ? "Checking your graphics card…"
     : S.gpu ? "Your PC has an NVIDIA graphics card, so Automatic uses Large v3 Turbo on it."
-      : "No NVIDIA graphics card found, so Automatic uses Small on the processor.";
+      : "This PC has no NVIDIA graphics card that can run the speech model, so Automatic uses Small on the processor.";
   return [
     ...pageHeader("Speech", "The speech-recognition model runs entirely on this computer. Nothing you say is sent anywhere."),
     cols([

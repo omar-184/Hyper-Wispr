@@ -8,7 +8,7 @@ It's modelled on how Wispr Flow works (see [docs/wispr-flow-analysis.md](docs/wi
 but is written from scratch and uses open-source models:
 
 - **Speech to text:** OpenAI's Whisper, running locally through [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
-  Uses your NVIDIA graphics card if you have one, otherwise the CPU.
+  Uses your NVIDIA graphics card if it can run the model (GTX 10-series, MX150 or newer), otherwise the CPU.
 - **Cleanup:** removes "um/uh", handles "scratch that", spoken punctuation ("comma", "new line"),
   your custom word list and replacements. Optionally, a small local AI model (through
   [Ollama](https://ollama.com)) polishes grammar and formatting and adapts the style to the app
@@ -17,8 +17,9 @@ but is written from scratch and uses open-source models:
 ## Install (Windows)
 
 1. Go to [Releases](https://github.com/omar-184/Hyper-Wispr/releases/latest) and download
-   `Hyper-Wispr-Setup-<version>.exe`, or the `-NVIDIA` version if your PC has an NVIDIA graphics card
-   (bigger download, much faster).
+   `Hyper-Wispr-Setup-<version>.exe`, or the `-NVIDIA` version if your PC has an NVIDIA GeForce
+   GTX 10-series, MX150 or newer card (bigger download, much faster). Older cards such as the MX130
+   can't run the speech model, so take the regular version.
 2. Run it. No administrator password is needed. If Windows says "Windows protected your PC", click
    **More info → Run anyway** (the installer isn't code-signed).
 3. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
@@ -91,7 +92,7 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
   **dictionary_starred** words always go first (Whisper only takes a limited number of hints).
 - **replacements**: always change the left side into the right side.
 - **snippets**: say the trigger phrase on its own and the full text is pasted.
-- **speech.model**: `auto` picks `large-v3-turbo` with an NVIDIA GPU and `small` on CPU. Bigger = more accurate but slower:
+- **speech.model**: `auto` picks `large-v3-turbo` with an NVIDIA GPU (GTX 10-series, MX150 or newer) and `small` on CPU. Bigger = more accurate but slower:
   `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, `large-v3`. English-only versions (`small.en`, `medium.en`) are a bit more accurate for English.
 - **speech.languages**: the languages you dictate in (default `["en"]`). With one language it is always used;
   with several, Hyper-Wispr picks the most likely of them each time. Guessing from all languages is unreliable

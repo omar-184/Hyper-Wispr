@@ -29,7 +29,7 @@ DEFAULTS: dict[str, Any] = {
     # the keyboard language when Arabic is installed.)
     "paste_last_keys": ["ctrl_l", "alt_l", "z"],
     "speech": {
-        # "auto" picks large-v3-turbo on an NVIDIA GPU and "small" on CPU.
+        # "auto" picks large-v3-turbo on an NVIDIA GPU (GTX 10-series, MX150 or newer) and "small" otherwise.
         # Other options: tiny, base, small, medium, large-v3, large-v3-turbo, distil-large-v3,
         # or the *.en English-only variants (tiny.en, base.en, small.en, medium.en).
         "model": "auto",
