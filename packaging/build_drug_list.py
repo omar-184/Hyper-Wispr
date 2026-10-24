@@ -54,18 +54,20 @@ def rows(zip_path: str | None):
 
 def generic_names(substances: str) -> list[str]:
     out = []
-    for part in substances.split(";"):
+    for part in re.split(r";|,| and ", substances, flags=re.IGNORECASE):
         words = [w for w in re.split(r"[\s,()/]+", part.lower()) if w]
         while len(words) > 1 and words[-1] in SALTS:
             words.pop()
         name = " ".join(words)
-        if name and len(name) >= 4 and not any(ch.isdigit() for ch in name) and name not in SKIP:
+        if name and len(name) >= 4 and len(words) <= 3 and not any(ch.isdigit() for ch in name) and name not in SKIP:
             out.append(name)
     return out
 
 
 def brand(name: str) -> str | None:
     name = re.sub(r"\s+", " ", name).strip()
+    # "Motpoly XR", "Combogesic IV": the form suffix isn't part of what's dictated.
+    name = re.sub(r"\s+[A-Za-z]{1,3}$", "", name)
     if not name or len(name) < 4 or len(name.split()) > 2 or not re.fullmatch(r"[A-Za-z][A-Za-z -]+[A-Za-z]", name):
         return None
     # The directory writes many brands in capitals ("ELIQUIS").
@@ -81,7 +83,10 @@ def main() -> None:
         if "HOMEOPATHIC" in category or "BULK" in category or kind not in ("HUMAN PRESCRIPTION DRUG", "HUMAN OTC DRUG"):
             continue
         names = generic_names(r.get("SUBSTANCENAME") or r.get("NONPROPRIETARYNAME") or "")
-        weight = 1 if kind == "HUMAN PRESCRIPTION DRUG" else 0.2  # OTC: only the common ones make it
+        # Approved prescription drugs count fully; OTC and unapproved products (herbal extracts and
+        # the like) only make it when there are many of them.
+        approved = kind == "HUMAN PRESCRIPTION DRUG" and category in ("NDA", "ANDA", "BLA", "NDA AUTHORIZED GENERIC")
+        weight = 1 if approved else 0.2
         for n in names:
             generics[n] += weight
         if kind == "HUMAN PRESCRIPTION DRUG" and category in ("NDA", "BLA"):
@@ -89,7 +94,9 @@ def main() -> None:
             if b and b.lower() not in {n for n in names} and not set(b.lower().split()) & SKIP:
                 brands[b] += 1
     keep_g = sorted(n for n, c in generics.items() if c >= 1 and all(re.fullmatch(r"[a-z][a-z-]*[a-z]", w) for w in n.split()))
-    keep_b = sorted(b for b in brands if b.lower() not in generics)
+    generic_words = {w for n in keep_g for w in n.split()} | SALTS
+    # "Methadone Hydrochloride", "Insulin Glargine-aldy" are generic names, not brands.
+    keep_b = sorted(b for b in brands if not set(re.split(r"[ -]", b.lower())) & generic_words)
     today = datetime.date.today().isoformat()
     header = (
         "# Source: U.S. FDA National Drug Code Directory ({url}), downloaded {today}.\n"
