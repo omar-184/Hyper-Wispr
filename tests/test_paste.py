@@ -84,3 +84,9 @@ def test_real_windows_clipboard_round_trip():
         clipboard.restore(saved or [])
     except OSError as e:  # no clipboard on this machine (e.g. a service session)
         pytest.skip(str(e))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows key codes")
+def test_shortcuts_are_sent_by_key_not_by_letter():
+    """With an Arabic keyboard layout there's no "v" to type, so Ctrl+V must go by the V key."""
+    assert paste._letter_key("v").vk == 0x56 and paste._letter_key("c").vk == 0x43
