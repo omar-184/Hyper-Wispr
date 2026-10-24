@@ -113,7 +113,10 @@ class Recorder:
         self._open_device = wanted
 
     def open_standby(self) -> None:
-        """Always-on microphone: open it now (or reopen it after a change), ready for the next dictation."""
+        """Always-on microphone: open it now (or reopen it after a change), ready for the next dictation.
+        Not while recording: a settings change then mustn't cut the dictation short."""
+        if self._recording:
+            return
         if not self.keep_open:
             self.close()
             return

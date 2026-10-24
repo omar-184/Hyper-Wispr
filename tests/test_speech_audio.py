@@ -199,3 +199,54 @@ def test_stream_that_fails_to_start_is_closed(monkeypatch):
     except OSError:
         pass
     assert streams and all(s.closed for s in streams)
+
+
+def test_a_settings_change_during_a_recording_doesnt_cut_it(monkeypatch):
+    for keep_open in (False, True):
+        rec = bare_recorder(None)
+        rec.cfg["keep_mic_open"] = keep_open
+        streams = []
+        monkeypatch.setattr(rec, "_open", lambda device, rate: streams.append(LiveStream(device)) or streams[-1])
+        rec.start()
+        block = np.ones((1600, 1), dtype=np.float32)
+        rec._callback(block, 1600, None, None)
+        rec.cfg["input_device"] = "Headset"  # saved in Settings mid-dictation
+        rec.open_standby()
+        assert not streams[0].closed and rec._recording
+        rec._callback(block, 1600, None, None)
+        assert rec.stop().size == 3200
+
+
+def test_gpu_failure_mid_session_switches_to_the_processor(monkeypatch):
+    class BrokenCard(FakeWhisper):
+        def transcribe(self, audio, **kwargs):
+            raise RuntimeError("CUDA failed with error out of memory")
+
+    t = transcriber(True, ["en"])
+    t.device, t.model = "cuda", BrokenCard(True)
+    t._speech_cfg = t.settings["speech"]
+    cpu = FakeWhisper(True)
+
+    def load_on_cpu():
+        t.model = cpu
+        return "small", "cpu", "int8"
+
+    monkeypatch.setattr(t, "_load_on_cpu", load_on_cpu)
+    assert t.transcribe(np.zeros(16000, dtype=np.float32)) == "Hello there."
+    assert t.device == "cpu" and t.description == "small on CPU (int8)" and len(cpu.calls) == 1 and t.gpu_failed
+    assert t.transcribe(np.zeros(16000, dtype=np.float32)) == "Hello there."  # and stays there
+
+
+def test_processor_failures_are_not_retried():
+    class Broken(FakeWhisper):
+        def transcribe(self, audio, **kwargs):
+            raise RuntimeError("bad audio")
+
+    t = transcriber(True, ["en"])
+    t.model = Broken(True)
+    try:
+        t.transcribe(np.zeros(16000, dtype=np.float32))
+    except RuntimeError as e:
+        assert str(e) == "bad audio"
+    else:
+        raise AssertionError("the error was swallowed")

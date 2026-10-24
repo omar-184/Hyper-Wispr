@@ -246,6 +246,10 @@ class App:
                     self.run_command(audio, target, focus)
                 else:
                     self.dictate(audio, seconds, target, t0, focus)
+                if getattr(self.transcriber, "gpu_failed", False) and not getattr(self, "_gpu_warned", False):
+                    self._gpu_warned = True
+                    self.notify("Using the processor", "The graphics card stopped working for dictation, so the processor "
+                                "took over (a little slower). Quit and reopen Hyper-Wispr to try the card again.")
             except Exception:
                 log.exception("Dictation failed")
                 chime("error", self.settings["audio"]["sounds"])
