@@ -1,0 +1,61 @@
+name: Benchmark
+
+# Measures each feature (speech model, medical dictation, AI cleanup, paste, shortcuts, history,
+# overlay, Settings window, the whole app) on a GitHub Windows machine: no microphone, no NVIDIA
+# card. Start it by hand from the Actions tab; the numbers are on the run's summary page.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/project-thread-9spmi6]
+    paths: [packaging/benchmark.py, .github/workflows/benchmark.yml]
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Hyper-Wispr
+        shell: bash
+        run: |
+          pip install . psutil edge-tts
+          # Generated at build time in the installed app, so it isn't timed here either.
+          python -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll'); import comtypes.gen.UIAutomationClient"
+
+      - name: Install Ollama and the AI cleanup model
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\ollama"
+          New-Item -ItemType Directory $dir | Out-Null
+          curl.exe -fsSL -o "$env:RUNNER_TEMP\ollama.zip" https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip
+          tar -xf "$env:RUNNER_TEMP\ollama.zip" -C $dir
+          $env:OLLAMA_MODELS = "$env:RUNNER_TEMP\ollama-models"
+          "OLLAMA_MODELS=$env:OLLAMA_MODELS" >> $env:GITHUB_ENV
+          $dir >> $env:GITHUB_PATH
+          Start-Process -FilePath "$dir\ollama.exe" -ArgumentList "serve" -WindowStyle Hidden
+          for ($i = 0; $i -lt 60; $i++) {
+            try { Invoke-RestMethod http://127.0.0.1:11434/api/tags | Out-Null; break } catch { Start-Sleep 1 }
+          }
+          & "$dir\ollama.exe" --version
+          & "$dir\ollama.exe" pull qwen2.5:3b
+
+      - name: Benchmark
+        shell: bash
+        run: python packaging/benchmark.py --out bench-results
+
+      - name: Results
+        if: always()
+        shell: bash
+        run: |
+          cat bench-results/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          cat bench-results/results.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: bench-results
