@@ -10,7 +10,7 @@ from hyper_wispr import app as app_module
 from hyper_wispr.__main__ import trim_log
 from hyper_wispr.app import process_text
 from hyper_wispr.history import History
-from hyper_wispr.hotkeys import HotkeyStateMachine
+from hyper_wispr.hotkeys import HANDS_FREE, HotkeyStateMachine
 
 
 def settings(**over):
@@ -129,6 +129,29 @@ def test_command_key_before_or_during_recording():
     assert not m.command  # a new, plain dictation
     m.key_down("alt_l")
     assert m.command
+
+
+def test_alt_in_hands_free_mode_keeps_it_a_dictation():
+    """Alt+Tab to another window while dictating hands-free mustn't turn the words into a command
+    (they were lost, or rewrote whatever was selected there)."""
+    ev = []
+    t = [0.0]
+    m = HotkeyStateMachine(["ctrl_l", "cmd"], 0.35, on_start=lambda: ev.append("start"),
+                           on_stop=lambda: ev.append("stop"), on_cancel=lambda: ev.append("cancel"),
+                           command_key="alt_l", clock=lambda: t[0])
+    m.key_down("ctrl_l")
+    m.key_down("cmd")
+    m.key_up("cmd")
+    m.key_up("ctrl_l")  # a quick tap: hands-free
+    assert m.state == HANDS_FREE
+    t[0] = 5.0
+    m.key_down("alt_l")
+    m.key_down("tab")
+    m.key_up("tab")
+    m.key_up("alt_l")
+    m.key_down("ctrl_l")
+    m.key_down("cmd")
+    assert ev == ["start", "stop"] and not m.command
 
 
 def test_paste_last_shortcut():

@@ -4,8 +4,9 @@
 - Tap them quickly instead: hands-free mode keeps recording after you let go.
   Tap (or hold) them again to finish.
 - Esc while recording: cancel without pasting.
-- Press the command key (default Alt) too, before or while recording: command mode, which
-  rewrites the selected text as you say instead of pasting what you said.
+- Press the command key (default Alt) too, before or while holding them: command mode, which
+  rewrites the selected text as you say instead of pasting what you said. In hands-free mode
+  Alt does nothing, so Alt+Tab to another window doesn't turn a dictation into a command.
 - The "paste last" keys (default Ctrl+Alt+Z): paste the last dictation again.
 - The medical keys (default Ctrl+Alt+M): turn medical dictation on or off.
 
@@ -124,7 +125,7 @@ class HotkeyStateMachine:
             self.state = IDLE
             self.on_cancel()
             return
-        if self._is_command_key(name) and self.state in (HOLDING, HANDS_FREE):
+        if self._is_command_key(name) and self.state == HOLDING:
             self.command = True
             self.on_combo()  # Alt on its own would select the app's menu bar when let go
             return

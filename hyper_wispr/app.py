@@ -314,15 +314,20 @@ class App:
         if not instruction:
             self.notify("No instruction heard", "Hold the keys, say what to do with the selected text, then let go.")
             return
+        # If the command can't run, what was said isn't lost: "paste last" types it.
+        again = " + ".join(hotkeys.display_name(k) for k in self.settings.get("paste_last_keys") or [])
+        again = f" To type what you said instead, press {again}." if again else ""
         if not self.settings["ai_cleanup"].get("enabled"):
-            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice.")
+            self.last_text = instruction
+            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice." + again)
             return
         self.wait_for_keys_released()
         selected = focus.selected if not focus.password else ""
         if not selected.strip():
             selected = paste.copy_selection(target.process)
         if not selected.strip():
-            self.notify("Select some text first", "Command mode changes the text you have selected. Select it, then hold the keys plus Alt and say what to do.")
+            self.last_text = instruction
+            self.notify("Select some text first", "Command mode changes the text you have selected. Select it, then hold the keys plus Alt and say what to do." + again)
             return
         log.info("Command mode: %d characters selected", len(selected))
         try:
