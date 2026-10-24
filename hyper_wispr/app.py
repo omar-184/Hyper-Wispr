@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import queue
@@ -41,7 +42,8 @@ def process_text(raw: str, settings: dict[str, Any], app_type: str) -> str:
 
 
 class App:
-    def __init__(self) -> None:
+    def __init__(self, open_window: bool = False) -> None:
+        self.open_window = open_window
         self.settings_problem = ""
         try:
             self.settings = config.load()
@@ -294,14 +296,34 @@ class App:
             self.set_status(status)
 
     def set_status(self, status: str) -> None:
+        if status != self.status or status in ("idle", "error"):
+            self._publish_status(status)
         self.status = status
         self.overlay.show({"recording": overlay.RECORDING, "working": overlay.WORKING}.get(status, overlay.HIDDEN))
         if self.icon is not None:
             self.icon.icon = _make_icon(COLORS[status])
             self.icon.title = f"Hyper-Wispr: {LABELS[status]}"
 
+    def _publish_status(self, status: str) -> None:
+        """status.json tells the window's dashboard what the tray app is doing."""
+        info = {
+            "status": status,
+            "label": LABELS[status],
+            "model": getattr(self.transcriber, "description", "") or "",
+            "error": self.load_error,
+            "pid": os.getpid(),
+            "time": time.time(),
+        }
+        try:
+            path = config.app_dir() / "status.json"
+            tmp = path.with_name(f"status.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(info), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            pass  # only the dashboard misses out
+
     def open_settings(self, *_: Any) -> None:
-        """Show the Settings window. It is a separate process so it can't freeze dictation."""
+        """Show the Hyper-Wispr window. It is a separate process so it can't freeze dictation."""
         if settings_ui.focus_window():
             return  # already open, maybe behind other windows or minimized
         if self.settings_window is not None and self.settings_window.poll() is None:
@@ -313,7 +335,7 @@ class App:
         try:
             self.settings_window = subprocess.Popen(cmd)
         except OSError:
-            log.exception("Could not open the Settings window; opening settings.json instead")
+            log.exception("Could not open the window; opening settings.json instead")
             _open(config.settings_path())
             return
         threading.Thread(target=self._check_settings_window, args=(self.settings_window,), daemon=True).start()
@@ -326,7 +348,7 @@ class App:
             return  # it's open
         if code != 0:
             log.error("The Settings window exited with code %s", code)
-            self.notify("Settings couldn't open", "Opening the settings file instead. The details are in the log (tray menu, Open log folder).")
+            self.notify("Hyper-Wispr couldn't open its window", "Opening the settings file instead. The details are in the log (tray menu, Open log folder).")
             _open(config.settings_path())
 
     def watch_settings(self) -> None:
@@ -423,8 +445,8 @@ class App:
 
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: LABELS[self.status], None, enabled=False),
-            # default=True: clicking the tray icon itself opens Settings.
-            pystray.MenuItem("Settings…", self.open_settings, default=True),
+            # default=True: clicking the tray icon itself opens the window.
+            pystray.MenuItem("Open Hyper-Wispr", self.open_settings, default=True),
             pystray.MenuItem("Copy last dictation", self.copy_last),
             pystray.MenuItem("AI cleanup", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
             pystray.MenuItem("Open log folder", lambda *_: _open(config.app_dir())),
@@ -441,6 +463,10 @@ class App:
             self.notify("Settings were reset", self.settings_problem)
         threading.Thread(target=self.controller, daemon=True).start()
         threading.Thread(target=self.watch_settings, daemon=True).start()
+        self._publish_status(self.status)
+        if self.open_window:
+            self.open_settings()
+        threading.Thread(target=settings_ui.refresh_startup_link, daemon=True).start()
         hotkeys.listen(self.machine)
         with self._model_lock:  # a speech-settings change during the first load waits for it
             self.load_models()

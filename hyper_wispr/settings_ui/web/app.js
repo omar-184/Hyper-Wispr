@@ -1,8 +1,8 @@
 "use strict";
 
-/* Hyper-Wispr settings page. Talks to Python through window.pywebview.api
-   (see settings_ui/__init__.py). Every change is saved right away; the
-   running app notices settings.json changed and applies it. */
+/* The Hyper-Wispr window: dashboard, history and settings. Talks to Python through
+   window.pywebview.api (see settings_ui/__init__.py). Every change is saved right
+   away; the running app notices settings.json changed and applies it. */
 
 const S = {
   settings: null,
@@ -11,7 +11,12 @@ const S = {
   saved: null,
   defaults: null,
   info: null,
-  page: "general",
+  page: "home",
+  status: null, // what the tray app is doing (status.json)
+  stats: null,
+  update: null, // result of the last update check
+  updateInfo: null,
+  download: null, // installer download progress
   gpu: null,
   mics: null,
   ollama: null,
@@ -37,6 +42,9 @@ function h(tag, attrs, ...children) {
 }
 
 const ICONS = {
+  home: '<rect x="4" y="4" width="7" height="8" rx="1.5"/><rect x="13" y="4" width="7" height="5" rx="1.5"/><rect x="13" y="11" width="7" height="9" rx="1.5"/><rect x="4" y="14" width="7" height="6" rx="1.5"/>',
+  arrow: '<path d="M9 6l6 6-6 6"/>',
+  download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
   general: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   speech: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   ai: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
@@ -474,16 +482,161 @@ function micRows() {
 
 /* ---- pages --------------------------------------------------------------- */
 const PAGES = [
-  { id: "general", label: "General", icon: "general" },
+  { id: "home", label: "Dashboard", icon: "home" },
+  { id: "history", label: "History", icon: "history" },
+  { id: "general", label: "General", icon: "general", group: "Settings" },
   { id: "speech", label: "Speech", icon: "speech" },
   { id: "ai", label: "AI cleanup", icon: "ai" },
   { id: "vocab", label: "Vocabulary", icon: "vocab" },
-  { id: "history", label: "History", icon: "history" },
-  { id: "about", label: "About", icon: "about" },
+  { id: "about", label: "About & updates", icon: "about" },
 ];
 
 function pageHeader(title, lede) {
   return [h("h1", {}, title), lede && h("p", { class: "lede" }, lede)];
+}
+
+/* Two columns side by side when the window is wide enough, one under the other when it isn't. */
+function cols(left, right) {
+  return h("div", { class: "cols" }, h("div", { class: "col" }, left), h("div", { class: "col" }, right));
+}
+
+/* ---- dashboard ----------------------------------------------------------- */
+function greeting() {
+  const hr = new Date().getHours();
+  return hr < 5 ? "Good evening" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+}
+
+function statusPill() {
+  const st = S.status;
+  if (!st) return h("span", { class: "pill" }, h("span", { class: "dot" }), "Checking…");
+  const kind = { idle: "ok", recording: "live", working: "busy", loading: "busy", error: "bad", stopped: "bad" }[st.status] || "";
+  return h("span", { class: "pill " + kind, title: st.model ? "Speech model: " + st.model : null },
+    h("span", { class: "dot" }), st.status === "idle" ? "Ready to dictate" : st.label);
+}
+
+function formatNumber(n) {
+  return Number(n || 0).toLocaleString();
+}
+function formatMinutes(m) {
+  if (m < 60) return { value: String(m), unit: m === 1 ? "minute" : "minutes" };
+  const hrs = m / 60;
+  return { value: hrs < 10 ? hrs.toFixed(1) : String(Math.round(hrs)), unit: "hours" };
+}
+
+function statTile(label, value, unit, hint) {
+  return h("div", { class: "tile" },
+    h("div", { class: "tile-label" }, label),
+    h("div", { class: "tile-value" }, value, unit && h("span", { class: "tile-unit" }, unit)),
+    hint && h("div", { class: "tile-hint" }, hint));
+}
+
+function activityChart(daily) {
+  const max = Math.max(1, ...daily.map((d) => d.words));
+  const total = daily.reduce((a, d) => a + d.words, 0);
+  const bars = h("div", { class: "bars", role: "img", "aria-label": `Words dictated per day over the last ${daily.length} days, ${formatNumber(total)} in total.` });
+  const today = daily.length - 1;
+  daily.forEach((d, i) => {
+    const date = new Date(d.day + "T12:00:00");
+    const label = i === today ? "Today" : date.toLocaleDateString(undefined, { weekday: "short" });
+    const full = date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+    bars.append(h("div", { class: "bar-col" + (i === today ? " today" : ""), title: `${full}: ${formatNumber(d.words)} words` },
+      h("div", { class: "bar-track" }, h("div", { class: "bar" + (d.words ? "" : " zero"), style: `height:${d.words ? Math.max(4, (d.words / max) * 100) : 0}%` })),
+      h("div", { class: "bar-label" }, i % 2 === today % 2 ? label : "")));
+  });
+  return h("div", { class: "chart" },
+    h("div", { class: "chart-scale" }, h("span", {}, formatNumber(max)), h("span", {}, "0")),
+    bars);
+}
+
+function dashCard(title, action, ...body) {
+  return h("section", { class: "card dash-card" },
+    h("div", { class: "dash-card-head" }, h("h2", {}, title), action),
+    ...body);
+}
+
+function homePage() {
+  const st = S.stats;
+  const keys = get("push_to_talk_keys") || [];
+  const saved = formatMinutes(st ? st.minutes_saved : 0);
+
+  const recent = h("div", { class: "dash-list" });
+  const paintRecent = (items) => {
+    recent.replaceChildren(...(items.length ? items.map((it) => historyItem(it, () => { loadRecent(); refreshStats(); }))
+      : [h("div", { class: "dash-empty" },
+        h("div", { class: "row-label" }, "No dictations yet"),
+        h("div", { class: "row-desc" }, ["Click into any text box, hold ", keysView(keys), " and speak. Let go and the text appears."]))]));
+  };
+  // Painted from the last load straight away, so a re-render doesn't flash "Loading…".
+  const loadRecent = async () => { S.recent = await api().get_history(6); paintRecent(S.recent); };
+  if (S.recent) paintRecent(S.recent);
+  else recent.append(h("div", { class: "row" }, h("span", { class: "empty" }, "Loading…")));
+  loadRecent();
+
+  const stopped = S.status && !S.status.running;
+  const statusLine = S.status && S.status.status === "error" ? S.status.error
+    : S.status && S.status.status === "loading" ? "The speech model is loading. The first start downloads it, which can take a few minutes."
+      : S.status && S.status.model ? `Speech recognition: ${S.status.model}` : "";
+
+  const upd = S.update && S.update.available ? h("div", { class: "banner info" },
+    h("div", { class: "row-text" }, h("div", { class: "row-label" }, `Hyper-Wispr ${S.update.latest} is available`),
+      h("div", { class: "row-desc" }, `You have ${S.info.version}. Updating keeps your settings and history.`)),
+    h("button", { class: "btn primary", type: "button", onclick: () => go("about") }, "See update")) : null;
+
+  return [
+    h("header", { class: "dash-head" },
+      h("div", {}, h("h1", {}, greeting()), h("p", { class: "lede" }, ["Hold ", keysView(keys), " anywhere and speak. Tap it once for hands-free."])),
+      h("div", { class: "dash-status" }, statusPill(), statusLine && h("div", { class: "row-desc" }, statusLine))),
+    stopped && h("div", { class: "banner", role: "alert" },
+      h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Hyper-Wispr isn't running"),
+        h("div", { class: "row-desc" }, "Dictation is off until it's started again.")),
+      h("button", { class: "btn primary", type: "button", onclick: async () => { await api().start_app(); S.status = null; render(); setTimeout(refreshStatus, 1500); } }, "Start Hyper-Wispr")),
+    upd,
+    h("div", { class: "tiles" },
+      statTile("Today", formatNumber(st && st.today_words), "words"),
+      statTile("This week", formatNumber(st && st.week_words), "words"),
+      statTile("Time saved", saved.value, saved.unit, `vs. typing ${formatNumber(st && st.words)} words`),
+      statTile("Speaking speed", st && st.wpm ? formatNumber(st.wpm) : "–", "wpm", "Typing is about 40"),
+      statTile("Streak", formatNumber(st && st.streak), st && st.streak === 1 ? "day" : "days", `${formatNumber(st && st.dictations)} dictations in all`)),
+    h("div", { class: "dash-grid" },
+      h("div", { class: "dash-main" },
+        dashCard("Last 14 days", null, st ? activityChart(st.daily) : h("div", { class: "chart" })),
+        dashCard("Recent dictations", h("button", { class: "link with-icon", type: "button", onclick: () => go("history") }, "See all", icon("arrow")), recent)),
+      h("div", { class: "dash-side" },
+        dashCard("Quick settings", null, h("div", { class: "dash-rows" },
+          row("AI cleanup", "Punctuation, \"um\"s and corrections fixed by a local AI.", toggle("ai_cleanup.enabled")),
+          row("Medical mode", "Drug names, doses and abbreviations kept exact.", toggle("ai_cleanup.medical_mode")),
+          row("Sounds", "A soft tone when listening starts and stops.", toggle("audio.sounds")),
+          row("On-screen indicator", "The \"Listening\" bubble while you dictate.", toggle("overlay.enabled")))),
+        dashCard("Your setup", h("button", { class: "link with-icon", type: "button", onclick: () => go("general") }, "Settings", icon("arrow")), h("div", { class: "dash-rows" },
+          setupRow("Microphone", micName(), "general"),
+          setupRow("Languages", languageSummary().replace(/\.$/, ""), "speech"),
+          setupRow("AI model", get("ai_cleanup.enabled") ? get("ai_cleanup.model") : "Off", "ai"),
+          setupRow("Words in your dictionary", formatNumber((get("dictionary") || []).length), "vocab"))))),
+  ];
+}
+
+function setupRow(label, value, page) {
+  return h("button", { class: "setup-row", type: "button", onclick: () => go(page) },
+    h("span", { class: "row-desc" }, label), h("span", { class: "setup-value" }, value), icon("arrow"));
+}
+
+function micName() {
+  const id = get("audio.input_device");
+  if (!id) return "Windows default";
+  return String(id).split(",")[0];
+}
+
+async function refreshStats() {
+  S.stats = await api().get_stats(14);
+  if (S.page === "home") render();
+}
+async function refreshStatus() {
+  const before = S.status;
+  S.status = await api().get_status();
+  if (JSON.stringify(S.status) === JSON.stringify(before)) return;
+  // A dictation just finished: the numbers and the recent list have changed.
+  if (before && before.status !== "idle" && S.status.status === "idle") return refreshStats();
+  if (S.page === "home") render();
 }
 
 function generalPage() {
@@ -502,20 +655,23 @@ function generalPage() {
   return [
     ...pageHeader("General", "How you start dictating, which microphone is used, and how text is put into your apps."),
     S.info.load_error && h("div", { class: "banner", role: "alert" }, S.info.load_error),
-    section("Shortcut", [shortcutRow()]),
-    section("Microphone", micRows()),
-    section("Typing", [
-      row("Sounds", "A short tone when recording starts and stops.", toggle("audio.sounds")),
-      row("Insert text by", "Pasting is instant and works almost everywhere. Typing is slower but works in apps that block pasting.",
-        segmented("paste.method", [{ value: "clipboard", label: "Pasting" }, { value: "type", label: "Typing" }], () => render())),
-      get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation (except in Remote Desktop or Citrix, where that could paste the old contents).", toggle("paste.restore_clipboard")),
-      row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
+    cols([
+      section("Shortcut", [shortcutRow()]),
+      section("Microphone", micRows()),
+    ], [
+      section("Typing", [
+        row("Sounds", "A soft tone when recording starts and stops.", toggle("audio.sounds")),
+        row("Insert text by", "Pasting is instant and works almost everywhere. Typing is slower but works in apps that block pasting.",
+          segmented("paste.method", [{ value: "clipboard", label: "Pasting" }, { value: "type", label: "Typing" }], () => render())),
+        get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation (except in Remote Desktop or Citrix, where that could paste the old contents).", toggle("paste.restore_clipboard")),
+        row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
+      ]),
+      section("On-screen indicator", [
+        row("Show while dictating", "A small \"Listening\" bubble with voice bars appears while recording, then \"Transcribing\" until the text is typed.", toggle("overlay.enabled", () => render())),
+        get("overlay.enabled") && row("Position", null, segmented("overlay.position", [{ value: "bottom", label: "Bottom" }, { value: "top", label: "Top" }])),
+      ]),
+      startRow && section("System", [startRow]),
     ]),
-    section("On-screen indicator", [
-      row("Show while dictating", "A small \"Listening\" bubble with voice bars appears while recording, then \"Transcribing\" until the text is typed.", toggle("overlay.enabled", () => render())),
-      get("overlay.enabled") && row("Position", null, segmented("overlay.position", [{ value: "bottom", label: "Bottom" }, { value: "top", label: "Top" }])),
-    ]),
-    startRow && section("System", [startRow]),
   ];
 }
 
@@ -592,17 +748,22 @@ function speechPage() {
       : "No NVIDIA graphics card found, so Automatic uses Small on the processor.";
   return [
     ...pageHeader("Speech", "The speech-recognition model runs entirely on this computer. Nothing you say is sent anywhere."),
-    section("Recognition", [
-      row("Model", auto, select("speech.model", MODELS)),
-      ...languageRows(),
-      row("Run on", "Automatic uses an NVIDIA graphics card when there is one.",
-        segmented("speech.device", [{ value: "auto", label: "Automatic" }, { value: "cuda", label: "NVIDIA GPU" }, { value: "cpu", label: "Processor" }])),
-      row("Skip silence", "Ignores pauses so the model doesn't invent words while you think.", toggle("speech.vad_filter")),
-    ], "Changing the model downloads it the first time (it can take a few minutes). Dictation keeps working with the old model until the new one is ready."),
-    advanced([
-      row("Accuracy search (beam size)", "Higher can be slightly more accurate but slower. 5 is a good default.", numberField("speech.beam_size", { min: 1, max: 10 })),
-      row("Number precision", "Leave on Automatic unless the model fails to load on your graphics card.",
-        select("speech.compute_type", [{ value: "auto", label: "Automatic" }, { value: "float16", label: "float16 (GPU)" }, { value: "int8_float16", label: "int8_float16 (GPU, less memory)" }, { value: "int8", label: "int8 (CPU)" }])),
+    cols([
+      section("Recognition", [
+        row("Model", auto, select("speech.model", MODELS)),
+        ...languageRows(),
+      ], "Changing the model downloads it the first time (it can take a few minutes). Dictation keeps working with the old model until the new one is ready."),
+    ], [
+      section("Performance", [
+        row("Run on", "Automatic uses an NVIDIA graphics card when there is one.",
+          segmented("speech.device", [{ value: "auto", label: "Automatic" }, { value: "cuda", label: "NVIDIA GPU" }, { value: "cpu", label: "Processor" }])),
+        row("Skip silence", "Ignores pauses so the model doesn't invent words while you think.", toggle("speech.vad_filter")),
+      ]),
+      advanced([
+        row("Accuracy search (beam size)", "Higher can be slightly more accurate but slower. 5 is a good default.", numberField("speech.beam_size", { min: 1, max: 10 })),
+        row("Number precision", "Leave on Automatic unless the model fails to load on your graphics card.",
+          select("speech.compute_type", [{ value: "auto", label: "Automatic" }, { value: "float16", label: "float16 (GPU)" }, { value: "int8_float16", label: "int8_float16 (GPU, less memory)" }, { value: "int8", label: "int8 (CPU)" }])),
+      ]),
     ]),
   ];
 }
@@ -647,28 +808,31 @@ function aiPage() {
   const off = !enabled;
   return [
     ...pageHeader("AI cleanup", "After transcription, a small AI model on your computer fixes punctuation, removes \"um\"s, handles \"no wait, I mean…\" corrections and formats lists."),
-    section(null, [
-      h("div", { class: "row" },
-        h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Status"),
-          h("div", { class: "row-desc" }, st && !st.running
-            ? ["AI cleanup needs the free Ollama app. Without it, you still get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
-            : "Uses Ollama, which runs AI models locally.")),
-        h("div", { class: "row-control" }, pill, h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
-      row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
-    ]),
-    section("Writing", [
-      row("Medical mode", "Keeps drug names, doses, units and clinical abbreviations exact (\"metoprolol 25 mg PO BID\"). If you correct a number out loud, both numbers are kept; say \"scratch that\" and repeat the sentence instead.", toggle("ai_cleanup.medical_mode"), { disabled: off }),
-      row("Model", "Larger models write better but take longer. qwen2.5:3b is a good start.",
-        modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
-      h("div", { class: "row stack" + (off ? " disabled" : "") },
-        h("div", { class: "row-text" }, h("label", { class: "row-label", for: "extra" }, "Extra instructions"),
-          h("div", { class: "row-desc" }, "Anything else the AI should always do, in plain English. For example: \"Use British spelling.\"")),
-        h("textarea", { id: "extra", rows: 3, oninput: (e) => set("ai_cleanup.extra_instructions", e.target.value) }, get("ai_cleanup.extra_instructions") || "")),
-    ]),
-    advanced([
-      row("Skip AI for short phrases", "Dictations with fewer words than this are pasted without the AI step, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
-      row("Time limit (seconds)", "If the AI takes longer, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
-      row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
+    cols([
+      section(null, [
+        h("div", { class: "row" },
+          h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Status"),
+            h("div", { class: "row-desc" }, st && !st.running
+              ? ["AI cleanup needs the free Ollama app. Without it, you still get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
+              : "Uses Ollama, which runs AI models locally.")),
+          h("div", { class: "row-control" }, pill, h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
+        row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
+      ]),
+      advanced([
+        row("Skip AI for short phrases", "Dictations with fewer words than this are pasted without the AI step, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
+        row("Time limit (seconds)", "If the AI takes longer, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
+        row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
+      ]),
+    ], [
+      section("Writing", [
+        row("Medical mode", "Keeps drug names, doses, units and clinical abbreviations exact (\"metoprolol 25 mg PO BID\"). If you correct a number out loud, both numbers are kept; say \"scratch that\" and repeat the sentence instead.", toggle("ai_cleanup.medical_mode"), { disabled: off }),
+        row("Model", "Larger models write better but take longer. qwen2.5:3b is a good start.",
+          modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
+        h("div", { class: "row stack" + (off ? " disabled" : "") },
+          h("div", { class: "row-text" }, h("label", { class: "row-label", for: "extra" }, "Extra instructions"),
+            h("div", { class: "row-desc" }, "Anything else the AI should always do, in plain English. For example: \"Use British spelling.\"")),
+          h("textarea", { id: "extra", rows: 3, oninput: (e) => set("ai_cleanup.extra_instructions", e.target.value) }, get("ai_cleanup.extra_instructions") || "")),
+      ]),
     ]),
   ];
 }
@@ -676,20 +840,41 @@ function aiPage() {
 function vocabPage() {
   return [
     ...pageHeader("Vocabulary", "Teach Hyper-Wispr the words you use and the shortcuts you want."),
-    section("Dictionary", [chipList("dictionary", "Add a word, e.g. a colleague's name or a drug")],
-      "Spelled exactly like this. Separate several with commas."),
-    section("Replacements", [pairList("replacements", "When you say", "Write", { leftPlaceholder: "hyper wisper", rightPlaceholder: "Hyper-Wispr" })],
-      "Always swaps the left side for the right side, ignoring capitals."),
-    section("Snippets", [pairList("snippets", "Say this on its own", "To insert", { multiline: true, leftPlaceholder: "my signature", rightPlaceholder: "Dr. …\nClinic …" })],
-      "Saying the phrase by itself pastes the full text instead."),
-    section("Basic cleanup", [
-      row("Remove filler words", "Removes the words below when they're said on their own.", toggle("cleanup.remove_fillers", () => render())),
-      get("cleanup.remove_fillers") && chipList("cleanup.filler_words", "Add a filler word"),
-      row("Spoken punctuation", "Say \"new line\", \"new paragraph\", \"period\" or \"comma\" to insert them.", toggle("cleanup.spoken_punctuation")),
+    cols([
+      section("Dictionary", [chipList("dictionary", "Add a word, e.g. a colleague's name or a drug")],
+        "Spelled exactly like this. Separate several with commas."),
+      section("Replacements", [pairList("replacements", "When you say", "Write", { leftPlaceholder: "hyper wisper", rightPlaceholder: "Hyper-Wispr" })],
+        "Always swaps the left side for the right side, ignoring capitals."),
+      section("Snippets", [pairList("snippets", "Say this on its own", "To insert", { multiline: true, leftPlaceholder: "my signature", rightPlaceholder: "Dr. …\nClinic …" })],
+        "Saying the phrase by itself pastes the full text instead."),
+    ], [
+      section("Basic cleanup", [
+        row("Remove filler words", "Removes the words below when they're said on their own.", toggle("cleanup.remove_fillers", () => render())),
+        get("cleanup.remove_fillers") && chipList("cleanup.filler_words", "Add a filler word"),
+        row("Spoken punctuation", "Say \"new line\", \"new paragraph\", \"period\" or \"comma\" to insert them.", toggle("cleanup.spoken_punctuation")),
+      ]),
+      section("Undo phrases", [chipList("cleanup.backtrack_phrases", "Add a phrase")],
+        "Saying one of these deletes the sentence you just said."),
     ]),
-    section("Undo phrases", [chipList("cleanup.backtrack_phrases", "Add a phrase")],
-      "Saying one of these deletes the sentence you just said."),
   ];
+}
+
+function historyItem(it, onDelete) {
+  const when = new Date(it.created * 1000);
+  const copyBtn = h("button", { class: "icon-btn", type: "button", title: "Copy", "aria-label": "Copy text" }, icon("copy"));
+  copyBtn.addEventListener("click", async () => {
+    if (await api().copy_text(it.text)) {
+      copyBtn.replaceChildren(icon("check"));
+      copyBtn.classList.add("copied");
+      setTimeout(() => { copyBtn.replaceChildren(icon("copy")); copyBtn.classList.remove("copied"); }, 1400);
+    }
+  });
+  return h("div", { class: "history-item" },
+    h("div", { class: "row-text" },
+      h("div", { class: "history-meta" }, [when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), it.app && it.app !== "unknown" ? it.app.replace(/\.exe$/i, "") : null, it.seconds ? `${it.seconds.toFixed(1)} s` : null].filter(Boolean).join(" · ")),
+      h("div", { class: "history-text" }, it.text || h("span", { class: "empty" }, "(nothing was pasted)"))),
+    h("div", { class: "history-actions" }, copyBtn,
+      h("button", { class: "icon-btn", type: "button", title: "Delete", "aria-label": "Delete this dictation", onclick: async () => { await api().delete_history(it.id); onDelete(); } }, icon("trash"))));
 }
 
 function historyPage() {
@@ -700,23 +885,7 @@ function historyPage() {
       list.replaceChildren(h("div", { class: "row" }, h("span", { class: "empty" }, "No dictations yet. Hold your shortcut and speak to make one.")));
       return;
     }
-    list.replaceChildren(...items.map((it) => {
-      const when = new Date(it.created * 1000);
-      const copyBtn = h("button", { class: "icon-btn", type: "button", title: "Copy", "aria-label": "Copy text" }, icon("copy"));
-      copyBtn.addEventListener("click", async () => {
-        if (await api().copy_text(it.text)) {
-          copyBtn.replaceChildren(icon("check"));
-          copyBtn.classList.add("copied");
-          setTimeout(() => { copyBtn.replaceChildren(icon("copy")); copyBtn.classList.remove("copied"); }, 1400);
-        }
-      });
-      return h("div", { class: "history-item" },
-        h("div", { class: "row-text" },
-          h("div", { class: "history-meta" }, [when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), it.app && it.app !== "unknown" ? it.app.replace(/\.exe$/i, "") : null, it.seconds ? `${it.seconds.toFixed(1)} s` : null].filter(Boolean).join(" · ")),
-          h("div", { class: "history-text" }, it.text || h("span", { class: "empty" }, "(nothing was pasted)"))),
-        h("div", { class: "history-actions" }, copyBtn,
-          h("button", { class: "icon-btn", type: "button", title: "Delete", "aria-label": "Delete this dictation", onclick: async () => { await api().delete_history(it.id); load(); } }, icon("trash"))));
-    }));
+    list.replaceChildren(...items.map((it) => historyItem(it, load)));
   };
   load();
   return [
@@ -730,53 +899,146 @@ function historyPage() {
   ];
 }
 
+/* ---- updates ------------------------------------------------------------- */
+async function checkForUpdate(manual) {
+  S.checking = true;
+  if (S.page === "about") render();
+  const res = await api().check_update();
+  S.checking = false;
+  // A failed automatic check stays quiet; a failed manual one says why.
+  if (res.ok || manual) S.update = res;
+  renderNav();
+  if (S.page === "about" || S.page === "home") render();
+}
+
+function formatSize(bytes) {
+  return bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(bytes / 1e6)) + " MB";
+}
+
+let downloadTimer = null;
+function watchDownload() {
+  clearInterval(downloadTimer);
+  downloadTimer = setInterval(async () => {
+    S.download = await api().update_progress();
+    if (S.download.state !== "downloading") clearInterval(downloadTimer);
+    const bar = document.getElementById("dl-fill");
+    if (bar && S.download.state === "downloading") {
+      const pct = S.download.total ? (S.download.done / S.download.total) * 100 : 0;
+      bar.style.width = pct + "%";
+      document.getElementById("dl-text").textContent = `Downloading… ${formatSize(S.download.done)} of ${formatSize(S.download.total)}`;
+    } else if (S.page === "about") render();
+  }, 300);
+}
+
+function updateRows() {
+  const u = S.update;
+  const d = S.download || { state: "idle" };
+  const canInstall = S.updateInfo && S.updateInfo.can_install;
+  const checkBtn = h("button", { class: "btn", type: "button", disabled: S.checking || d.state === "downloading", onclick: () => checkForUpdate(true) }, S.checking ? "Checking…" : "Check now");
+  let status;
+  if (S.checking && !u) status = "Checking GitHub for a newer version…";
+  else if (!u) status = "Not checked yet.";
+  else if (!u.ok) status = h("span", { class: "hint-error" }, u.error);
+  else if (!u.available) status = `You're up to date. ${u.latest && u.latest !== S.info.version ? `The latest release is ${u.latest}.` : ""}`;
+  else status = h("span", { class: "update-new" }, `Version ${u.latest} is available.`);
+  const rows = [
+    h("div", { class: "row" },
+      h("div", { class: "row-text" }, h("div", { class: "row-label" }, `Version ${S.info.version}`), h("div", { class: "row-desc", "aria-live": "polite" }, status)),
+      h("div", { class: "row-control" }, checkBtn)),
+  ];
+  if (u && u.ok && u.available) {
+    let action;
+    if (!canInstall) {
+      action = h("button", { class: "btn primary", type: "button", onclick: () => api().open_url(u.page) }, "Open download page");
+    } else if (d.state === "downloading") {
+      const pct = d.total ? (d.done / d.total) * 100 : 0;
+      action = h("div", { class: "download" },
+        h("div", { class: "meter" }, h("div", { class: "meter-fill", id: "dl-fill", style: `width:${pct}%` })),
+        h("span", { class: "row-desc", id: "dl-text" }, "Downloading…"),
+        h("button", { class: "btn small", type: "button", onclick: () => api().cancel_update() }, "Cancel"));
+    } else if (d.state === "ready") {
+      action = h("button", { class: "btn primary", type: "button", onclick: async () => {
+        const res = await api().install_update();
+        if (!res.ok) { S.download = { state: "error", error: res.error }; render(); }
+        else { S.download = { state: "installing" }; render(); }
+      } }, "Install and restart");
+    } else if (d.state === "installing") {
+      action = h("span", { class: "row-desc" }, "Installing… Hyper-Wispr closes and opens again by itself.");
+    } else {
+      action = h("button", { class: "btn primary with-icon", type: "button", onclick: async () => {
+        const res = await api().download_update(u.asset);
+        if (!res.ok) { S.download = { state: "error", error: res.error }; render(); return; }
+        S.download = { state: "downloading", done: 0, total: u.asset.size };
+        render();
+        watchDownload();
+      } }, icon("download"), `Download ${formatSize(u.asset.size)}`);
+    }
+    rows.push(h("div", { class: "row stack" },
+      h("div", { class: "meter-row" },
+        h("div", { class: "row-text" }, h("div", { class: "row-label" }, `What's new in ${u.latest}`),
+          h("div", { class: "row-desc" }, d.state === "ready" ? "Downloaded. Installing takes about a minute; your settings, history and speech model are kept." : "Your settings, history and speech model are kept.")),
+        action),
+      d.state === "error" && h("div", { class: "hint-error", role: "alert" }, d.error),
+      u.notes && h("details", { class: "notes" }, h("summary", {}, "Release notes"), h("div", { class: "notes-body" }, u.notes))));
+  }
+  rows.push(row("Check automatically", "Looks for a new version once a day when this window opens. Only the version number is fetched from GitHub; nothing about you or your dictations is sent.", toggle("updates.check_automatically")));
+  return rows;
+}
+
 function aboutPage() {
   return [
     h("div", { class: "card section" }, h("div", { class: "about-hero" },
       h("div", { class: "brand-mark", "aria-hidden": "true", html: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>' }),
       h("div", {}, h("h1", {}, "Hyper-Wispr"), h("div", { class: "row-desc" }, `Version ${S.info.version} · Private, offline dictation. Speech recognition and AI cleanup both run on this computer.`)))),
-    section("Files", [
-      h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Data folder"),
-        h("div", { class: "mono" }, S.info.data_dir), h("div", { class: "row-desc" }, "Settings, history and the log file (useful when reporting a problem).")),
-        h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_data_folder() }, "Open folder"))),
-      h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Settings file"),
-        h("div", { class: "row-desc" }, "For advanced users. Changes made there are picked up automatically.")),
-        h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_settings_file() }, "Open file"))),
-    ]),
-    section("Reset", [
-      h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Reset all settings"),
-        h("div", { class: "row-desc" }, "Puts every setting back to how it was after installing. Your history is kept.")),
-        h("div", { class: "row-control" }, confirmButton("Reset…", "Reset everything?", "Reset", async () => {
-          clearTimeout(saveTimer);
-          savePending = false;
-          const st = await api().reset_settings();
-          S.settings = st.settings;
-          S.saved = structuredClone(st.settings);
-          S.info = st; // clears a "settings file could not be read" warning
-          setStatus("saved");
-          render();
-        }))),
+    cols([
+      section("Updates", updateRows()),
+    ], [
+      section("Files", [
+        h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Data folder"),
+          h("div", { class: "mono" }, S.info.data_dir), h("div", { class: "row-desc" }, "Settings, history and the log file (useful when reporting a problem).")),
+          h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_data_folder() }, "Open folder"))),
+        h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Settings file"),
+          h("div", { class: "row-desc" }, "For advanced users. Changes made there are picked up automatically.")),
+          h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_settings_file() }, "Open file"))),
+      ]),
+      section("Reset", [
+        h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Reset all settings"),
+          h("div", { class: "row-desc" }, "Puts every setting back to how it was after installing. Your history is kept.")),
+          h("div", { class: "row-control" }, confirmButton("Reset…", "Reset everything?", "Reset", async () => {
+            clearTimeout(saveTimer);
+            savePending = false;
+            const st = await api().reset_settings();
+            S.settings = st.settings;
+            S.saved = structuredClone(st.settings);
+            S.info = st; // clears a "settings file could not be read" warning
+            setStatus("saved");
+            render();
+          }))),
+      ]),
     ]),
     h("p", { class: "section-note" }, h("button", { class: "link", type: "button", onclick: () => api().open_url("https://github.com/omar-184/Hyper-Wispr") }, "Hyper-Wispr on GitHub")),
   ];
 }
 
-const RENDER = { general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, about: aboutPage };
+const RENDER = { home: homePage, general: generalPage, speech: speechPage, ai: aiPage, vocab: vocabPage, history: historyPage, about: aboutPage };
 
 /* ---- navigation ---------------------------------------------------------- */
 function renderNav() {
   const nav = document.getElementById("nav");
-  nav.replaceChildren(...PAGES.map((p) => h("button", {
-    type: "button", "aria-current": p.id === S.page ? "page" : null, title: p.label,
-    onclick: () => go(p.id),
-  }, icon(p.icon), h("span", {}, p.label))));
+  nav.replaceChildren(...PAGES.flatMap((p) => [
+    p.group && h("div", { class: "nav-group" }, h("span", {}, p.group)),
+    h("button", {
+      type: "button", "aria-current": p.id === S.page ? "page" : null, title: p.label,
+      onclick: () => go(p.id),
+    }, icon(p.icon), h("span", {}, p.label),
+    p.id === "about" && S.update && S.update.available && h("span", { class: "badge", title: "Update available", "aria-label": "Update available" })),
+  ].filter(Boolean)));
 }
 
 function go(page) {
   if (page === S.page) return;
   stopMicTest();
   S.page = page;
-  try { localStorage.setItem("hw-page", page); } catch (e) { /* storage may be unavailable */ }
   renderNav();
   render(true);
   document.getElementById("main").scrollTop = 0;
@@ -807,7 +1069,7 @@ async function init() {
   S.saved = structuredClone(st.settings);
   S.defaults = st.defaults;
   S.info = st;
-  try { const p = localStorage.getItem("hw-page"); if (RENDER[p]) S.page = p; } catch (e) { /* ignore */ }
+  document.getElementById("brand-sub").textContent = "Version " + st.version;
   setStatus("saved");
   renderNav();
   render(true);
@@ -815,14 +1077,27 @@ async function init() {
   api().window_ready();
 
   // Slower lookups fill in when ready.
+  refreshStatus();
+  refreshStats();
+  setInterval(refreshStatus, 1500);
+  setInterval(() => { if (S.page === "home") refreshStats(); }, 30000); // e.g. after midnight
+  api().update_info().then((info) => {
+    S.updateInfo = info;
+    const last = info.last;
+    // Shows what the last check found straight away, then checks again if that was over a day ago.
+    if (last && last.ok && last.current === st.version) S.update = last;
+    renderNav();
+    if (get("updates.check_automatically") && (!last || Date.now() / 1000 - last.checked > 20 * 3600 || last.current !== st.version)) checkForUpdate(false);
+    else if (S.page === "home" || S.page === "about") render();
+  });
   api().list_microphones().then((m) => { S.mics = m; if (S.page === "general") render(); });
   api().gpu_available().then((g) => { S.gpu = !!g; if (S.page === "speech") render(); }).catch(() => { S.gpu = false; });
   refreshOllama();
 }
 
 document.addEventListener("keydown", (e) => {
-  // Ctrl+1..6 jumps between sections.
-  if (e.ctrlKey && !e.altKey && /^[1-6]$/.test(e.key)) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
+  // Ctrl+1..7 jumps between sections.
+  if (e.ctrlKey && !e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); go(PAGES[Number(e.key) - 1].id); }
 });
 
 if (window.pywebview && window.pywebview.api && window.pywebview.api.get_state) init();

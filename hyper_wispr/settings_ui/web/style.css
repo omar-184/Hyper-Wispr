@@ -1,5 +1,6 @@
-/* Hyper-Wispr settings. Grouped "inset list" layout in the spirit of macOS System Settings,
-   adapted to Windows type (Segoe UI Variable). Light and dark follow the Windows app theme. */
+/* The Hyper-Wispr window. Grouped "inset list" layout in the spirit of macOS System Settings,
+   adapted to Windows type (Segoe UI Variable). Light and dark follow the Windows app theme.
+   Pages use the whole window: two columns when it is wide, one when it is narrow. */
 
 :root {
   color-scheme: light dark;
@@ -100,6 +101,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand-sub { font-size: 12px; color: var(--text-2); }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-group {
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-3); padding: 16px 10px 6px;
+}
+.nav .badge { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
+.nav button[aria-current="page"] .badge { background: var(--on-accent); }
 .nav button {
   display: flex; align-items: center; gap: 10px;
   border: 0; background: transparent; text-align: left;
@@ -118,14 +125,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
   padding: 8px 10px; display: flex; align-items: center; gap: 6px;
   min-height: 32px;
 }
+.link.with-icon, .btn.with-icon { display: inline-flex; align-items: center; gap: 4px; }
+.link.with-icon svg { width: 14px; height: 14px; }
+.btn.with-icon svg { width: 16px; height: 16px; }
 .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
 .status.saving .dot { background: var(--text-3); }
 .status.error { color: var(--danger); }
 .status.error .dot { background: var(--danger); }
 
 /* ---- page ------------------------------------------------------------- */
-main { overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
-.page { max-width: 680px; margin: 0 auto; padding: 28px 32px 48px; }
+main { overflow-y: auto; min-height: 0; scroll-behavior: smooth; container-type: inline-size; }
+.page { padding: 30px 40px 48px; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 24px; align-items: start; }
+@container (min-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .page.entering { animation: page-in 220ms var(--ease); }
 @keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -292,6 +304,75 @@ input[type="range"] { flex: 1; accent-color: var(--accent); }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
 .pill.ok .dot { background: var(--ok); }
 .pill.bad .dot { background: var(--warn); }
+.pill.busy .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+.pill.live .dot { background: #e53935; animation: pulse 1s ease-in-out infinite; }
+
+/* ---- dashboard -------------------------------------------------------- */
+.dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 22px; }
+.dash-head h1 { font-size: 30px; }
+.dash-head .lede { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dash-status { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 46ch; text-align: right; padding-top: 4px; }
+@container (max-width: 760px) { .dash-status { align-items: flex-start; text-align: left; } }
+.dash-status .pill { font-size: 13px; padding: 5px 12px; background: var(--card); box-shadow: var(--shadow-card); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.tile { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px 18px 15px; min-width: 0; }
+.tile-label { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.tile-value {
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-unit { font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--text-2); margin-left: 6px; }
+.tile-hint { font-size: 12px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+@container (min-width: 960px) { .dash-grid { grid-template-columns: minmax(0, 1.75fr) minmax(320px, 1fr); } }
+.dash-main, .dash-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 6px; }
+.dash-card-head h2 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+.dash-card .row { padding-left: 16px; padding-right: 16px; }
+.dash-card .row + .row::before { left: 16px; }
+.dash-list { padding-bottom: 4px; }
+.dash-list .history-item { padding-left: 16px; padding-right: 16px; }
+.dash-list .history-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dash-empty { padding: 10px 16px 18px; }
+.dash-empty .row-desc { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.dash-rows { padding-bottom: 4px; }
+
+.chart { display: flex; gap: 10px; padding: 8px 16px 14px; height: 200px; }
+.chart-scale { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--text-3); padding-bottom: 22px; font-variant-numeric: tabular-nums; text-align: right; min-width: 2ch; }
+.bars { flex: 1; display: flex; align-items: stretch; gap: 6px; min-width: 0; }
+.bar-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.bar-track {
+  flex: 1; display: flex; align-items: flex-end; border-radius: 6px;
+  background: linear-gradient(to top, var(--hairline) 1px, transparent 1px);
+}
+.bar { width: 100%; background: var(--accent); opacity: 0.55; border-radius: 5px 5px 2px 2px; transition: height 320ms var(--ease), opacity 120ms var(--ease); }
+.bar-col.today .bar, .bar-col:hover .bar { opacity: 1; }
+.bar.zero { height: 2px !important; background: var(--text-3); opacity: 0.25; }
+.bar-label { font-size: 11px; color: var(--text-3); text-align: center; height: 22px; padding-top: 6px; white-space: nowrap; }
+.bar-col.today .bar-label { color: var(--text); font-weight: 600; }
+
+.setup-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; text-align: left;
+  padding: 11px 16px; min-height: 44px; position: relative; color: var(--text);
+  transition: background-color 120ms var(--ease);
+}
+.setup-row + .setup-row::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: 1px solid var(--hairline); }
+.setup-row:hover { background: var(--control); }
+.setup-row .row-desc { flex: none; margin: 0; }
+.setup-value { flex: 1; text-align: right; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.setup-row svg { width: 14px; height: 14px; color: var(--text-3); flex: none; }
+
+/* ---- updates ---------------------------------------------------------- */
+.update-new { color: var(--accent-text); font-weight: 600; }
+.download { display: flex; align-items: center; gap: 10px; min-width: 260px; }
+.download .meter-fill { background: var(--accent); transition: width 280ms var(--ease); }
+details.notes > summary { cursor: default; color: var(--accent-text); font-weight: 500; font-size: 13px; }
+.notes-body { white-space: pre-wrap; font-size: 12.5px; color: var(--text-2); margin-top: 8px; max-height: 240px; overflow-y: auto; user-select: text; }
+.banner .row-text + .btn { align-self: center; }
+.banner { align-items: center; }
 
 /* disclosure */
 details.more > summary {
@@ -321,7 +402,9 @@ details.more[open] > summary::before { transform: rotate(45deg); }
 
 @media (max-width: 760px) {
   body { grid-template-columns: 64px 1fr; }
-  .brand-text, .nav span, .status span { display: none; }
+  .brand-text, .nav span, .status span, .nav-group { display: none; }
+  .nav .badge { position: absolute; margin: 0; transform: translate(10px, -8px); }
+  .nav button { position: relative; }
   .brand { justify-content: center; padding: 2px 0 18px; }
   .nav button { justify-content: center; }
   .page { padding: 22px 18px 40px; }

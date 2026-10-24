@@ -50,10 +50,13 @@ Source: "..\dist\Hyper-Wispr\*"; DestDir: "{app}"; Flags: ignoreversion recurses
 Name: "{group}\Hyper-Wispr"; Filename: "{app}\Hyper-Wispr.exe"
 Name: "{group}\Uninstall Hyper-Wispr"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Hyper-Wispr"; Filename: "{app}\Hyper-Wispr.exe"; Tasks: desktopicon
-Name: "{userstartup}\Hyper-Wispr"; Filename: "{app}\Hyper-Wispr.exe"; Tasks: startup
+; --minimized: at login it waits in the tray instead of opening its window.
+Name: "{userstartup}\Hyper-Wispr"; Filename: "{app}\Hyper-Wispr.exe"; Parameters: "--minimized"; Tasks: startup
 
 [Run]
 Filename: "{app}\Hyper-Wispr.exe"; Description: "Start Hyper-Wispr now"; Flags: nowait postinstall skipifsilent
+; An update started from inside the app runs silently: start the new version when it's done.
+Filename: "{app}\Hyper-Wispr.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallDelete]
 ; "Open at login" in Settings may have created this even if the installer task was unticked.
@@ -63,6 +66,15 @@ Type: files; Name: "{userstartup}\Hyper-Wispr.lnk"
 Filename: "{cmd}"; Parameters: "/C taskkill /IM Hyper-Wispr.exe /F"; Flags: runhidden; RunOnceId: "StopApp"
 
 [Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  { The tray app and its window hold files open; close them so every file can be replaced. }
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM Hyper-Wispr.exe /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Result := '';
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   { The history can hold patient information, so offer to remove it rather than leave it behind. }
