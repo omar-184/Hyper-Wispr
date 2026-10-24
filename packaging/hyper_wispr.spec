@@ -1,6 +1,6 @@
 # PyInstaller spec. Build with:  pyinstaller packaging/hyper_wispr.spec
-# Set HW_GPU=1 to bundle the NVIDIA CUDA libraries (needs the [gpu] extra installed).
-import glob
+# The NVIDIA CUDA libraries are not bundled: the app downloads them on PCs that can use them
+# (hyper_wispr/gpu_pack.py). Run packaging/gpu_manifest.py first so gpu_pack.json is included.
 import os
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
@@ -10,7 +10,7 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = collect_data_files("faster_whisper") + collect_data_files("onnxruntime")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("sounddevice")
 datas += collect_data_files("_sounddevice_data")
-datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files
+datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files and gpu_pack.json
 datas += collect_data_files("webview")
 hiddenimports = (
     collect_submodules("hyper_wispr")
@@ -22,15 +22,6 @@ hiddenimports = (
     + ["webview.platforms.edgechromium", "webview.platforms.winforms", "clr"]
     + ["ctranslate2", "onnxruntime", "av"]
 )
-
-if os.environ.get("HW_GPU") == "1":
-    import nvidia
-
-    for root in nvidia.__path__:
-        for sub in ("cublas", "cudnn"):
-            for dll in glob.glob(os.path.join(root, sub, "bin", "*.dll")):
-                # Next to ctranslate2.dll, which adds its own folder to the DLL search path.
-                binaries.append((dll, "ctranslate2"))
 
 a = Analysis(
     [os.path.join(SPECPATH, "launcher.py")],

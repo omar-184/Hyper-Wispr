@@ -20,10 +20,12 @@ def test_version_comparison():
     assert not updates.is_newer("", "0.3.0")
 
 
-def test_picks_the_installer_matching_this_build():
-    assert updates.pick_asset(ASSETS, "GPU")["name"].endswith("-NVIDIA.exe")
-    assert updates.pick_asset(ASSETS, "CPU")["name"] == "Hyper-Wispr-Setup-0.4.0.exe"
-    assert updates.pick_asset([], "CPU") is None
+def test_picks_the_single_installer():
+    # Old releases also had an -NVIDIA installer; every PC now updates with the regular one.
+    assert updates.pick_asset(ASSETS)["name"] == "Hyper-Wispr-Setup-0.4.0.exe"
+    assert updates.pick_asset(ASSETS[::-1])["name"] == "Hyper-Wispr-Setup-0.4.0.exe"
+    assert updates.pick_asset(ASSETS[1:]) is None
+    assert updates.pick_asset([]) is None
 
 
 def test_only_downloads_this_projects_releases():

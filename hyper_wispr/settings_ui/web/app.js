@@ -580,7 +580,9 @@ function homePage() {
   const firstRun = dl ? h("div", { class: "banner info first-run" },
     h("div", { class: "row-text" },
       h("div", { class: "row-label" }, "Getting Hyper-Wispr ready"),
-      h("div", { class: "row-desc" }, "The speech model is downloading. This happens once; after that everything works offline."),
+      h("div", { class: "row-desc" }, dl.what === "gpu"
+        ? "Your NVIDIA graphics card can run speech recognition much faster, so its speed-up files are downloading. This happens once."
+        : "The speech model is downloading. This happens once; after that everything works offline."),
       h("div", { class: "meter progress", role: "progressbar", "aria-label": "Download progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(dl.total ? Math.round((dl.done / dl.total) * 100) : 0) },
         h("div", { class: "meter-fill", style: `width:${dl.total ? Math.min(100, (dl.done / dl.total) * 100) : 4}%` })),
       h("div", { class: "row-desc" }, dl.total ? `${formatSize(dl.done)} of ${formatSize(dl.total)}` : `${formatSize(dl.done)} so far`))) : null;
@@ -758,7 +760,7 @@ function languageSummary() {
 
 function speechPage() {
   const auto = S.gpu === null ? "Checking your graphics card…"
-    : S.gpu ? "Your PC has an NVIDIA graphics card, so Automatic uses Large v3 Turbo on it."
+    : S.gpu ? "Your PC has an NVIDIA graphics card, so Automatic uses Large v3 Turbo on it (the first start downloads its speed-up files once)."
       : "This PC has no NVIDIA graphics card that can run the speech model, so Automatic uses Small on the processor.";
   return [
     ...pageHeader("Speech", "The speech-recognition model runs entirely on this computer. Nothing you say is sent anywhere."),
@@ -769,7 +771,7 @@ function speechPage() {
       ], "Changing the model downloads it the first time (it can take a few minutes). Dictation keeps working with the old model until the new one is ready."),
     ], [
       section("Performance", [
-        row("Run on", "Automatic uses an NVIDIA graphics card when there is one.",
+        row("Run on", "Automatic uses an NVIDIA graphics card when it can run the model (GTX 10-series, MX150 or newer).",
           segmented("speech.device", [{ value: "auto", label: "Automatic" }, { value: "cuda", label: "NVIDIA GPU" }, { value: "cpu", label: "Processor" }])),
         row("Skip silence", "Ignores pauses so the model doesn't invent words while you think.", toggle("speech.vad_filter")),
       ]),

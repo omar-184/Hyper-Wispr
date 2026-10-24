@@ -117,7 +117,7 @@ def self_test() -> int:
         import webview  # noqa: F401
         from faster_whisper.vad import get_speech_timestamps
 
-        from . import app  # noqa: F401
+        from . import app, gpu_pack  # noqa: F401
         from .speech import cuda_available
 
         get_speech_timestamps(np.zeros(16000, dtype=np.float32))
@@ -130,7 +130,10 @@ def self_test() -> int:
                 raise RuntimeError("UI Automation could not be loaded")
             if secure.decrypt(secure.encrypt(b"test")) != b"test":
                 raise RuntimeError("Encryption round trip failed")
-        logging.info("Self-test OK: ctranslate2 %s, CUDA devices: %s", ctranslate2.__version__, cuda_available())
+        if getattr(sys, "frozen", False) and gpu_pack.manifest() is None:
+            raise RuntimeError("gpu_pack.json (the NVIDIA download list) is missing from the build")
+        cards = [gpu_pack.describe(c) for c in gpu_pack.nvidia_cards()]
+        logging.info("Self-test OK: ctranslate2 %s, CUDA devices: %s, NVIDIA cards: %s", ctranslate2.__version__, cuda_available(), cards or "none")
         return 0
     except Exception:
         logging.exception("Self-test failed")

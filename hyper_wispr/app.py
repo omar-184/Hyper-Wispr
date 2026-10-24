@@ -354,7 +354,7 @@ class App:
         if self.icon is not None:
             self.icon.title = "Hyper-Wispr: loading speech model (the first start downloads it, which can take a few minutes)"
         try:
-            transcriber = Transcriber(self.settings, progress=self._download_progress)
+            transcriber = Transcriber(self.settings, progress=self._download_progress, fetch_gpu=True)
         except Exception as e:
             log.exception("Could not load the speech model")
             self.load_error = f"{e}. Check your internet connection for the first download, then restart Hyper-Wispr."
@@ -384,9 +384,9 @@ class App:
             else:
                 log.warning("Ollama is not running; AI cleanup will be skipped until it is.")
 
-    def _download_progress(self, done: int, total: int) -> None:
-        """Called while a speech model downloads for the first time."""
-        self.download = {"done": done, "total": total}
+    def _download_progress(self, done: int, total: int, what: str = "model") -> None:
+        """Called while the speech model (what="model") or the NVIDIA files ("gpu") download for the first time."""
+        self.download = {"done": done, "total": total, "what": what}
         self._settle_status()
         if self.icon is not None:
             self.icon.title = "Hyper-Wispr: " + _download_label(self.download)
@@ -533,7 +533,7 @@ class App:
                 return  # an earlier reload already loaded it
             log.info("Speech settings changed; loading the new model")
             try:
-                new = Transcriber(self.settings)
+                new = Transcriber(self.settings, fetch_gpu=True)
             except Exception as e:
                 log.exception("Could not load the new speech model")
                 self.notify("Couldn't switch speech model", f"{e}. Still using {self.transcriber.description}.")
@@ -620,9 +620,10 @@ class App:
 
 def _download_label(download: dict[str, Any]) -> str:
     done, total = download.get("done", 0), download.get("total", 0)
+    what = "the NVIDIA speed-up files" if download.get("what") == "gpu" else "the speech model"
     if total:
-        return f"Downloading the speech model: {min(99, done * 100 // total)}% of {total / 1e9:.1f} GB"
-    return f"Downloading the speech model: {done / 1e6:.0f} MB so far"
+        return f"Downloading {what}: {min(99, done * 100 // total)}% of {total / 1e9:.1f} GB"
+    return f"Downloading {what}: {done / 1e6:.0f} MB so far"
 
 
 def _open_history() -> History:

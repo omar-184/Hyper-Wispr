@@ -16,9 +16,13 @@ log = logging.getLogger(__name__)
 
 
 def _add_cuda_dll_dirs() -> None:
-    """On Windows, the CUDA libraries come from the nvidia-* pip wheels; make them findable."""
+    """On Windows, the CUDA libraries come from the nvidia-* pip wheels (a development copy) or
+    were downloaded on first start (the installed app, see gpu_pack); make them findable."""
     if sys.platform != "win32":
         return
+    from . import gpu_pack
+
+    gpu_pack.activate()
     try:
         import nvidia  # type: ignore
     except ImportError:
@@ -65,9 +69,12 @@ def usable_gpu() -> bool:
 
 def resolve(cfg: dict[str, Any]) -> tuple[str, str, list[str]]:
     """Returns (model, device, compute types to try in order)."""
+    from .gpu_pack import libraries_ready
+
     device = cfg.get("device", "auto")
     if device == "auto":
-        device = "cuda" if usable_gpu() else "cpu"
+        # Until the NVIDIA files are downloaded the card can't be used, so "auto" means the processor.
+        device = "cuda" if libraries_ready() and usable_gpu() else "cpu"
     model = cfg.get("model", "auto")
     if model == "auto":
         model = "large-v3-turbo" if device == "cuda" else "small"
@@ -167,7 +174,7 @@ def _repo(model: str) -> str | None:
 
 def download(model: str, progress=None) -> str:
     """Download a model the first time (later it's on disk) and return its folder.
-    progress(done_bytes, total_bytes or 0) is called about twice a second while downloading."""
+    progress(done_bytes, total_bytes or 0, "model") is called about twice a second while downloading."""
     import huggingface_hub
 
     repo = _repo(model)
@@ -190,7 +197,7 @@ def download(model: str, progress=None) -> str:
     def report() -> None:
         while not done.wait(0.5):
             if progress is not None:
-                progress(_folder_size(folder), total)
+                progress(_folder_size(folder), total, "model")
 
     watcher = threading.Thread(target=report, daemon=True)
     watcher.start()
@@ -199,7 +206,7 @@ def download(model: str, progress=None) -> str:
     finally:
         done.set()
     if progress is not None:
-        progress(total, total)
+        progress(total, total, "model")
     return path
 
 
@@ -216,12 +223,19 @@ def _folder_size(folder: Path) -> int:
 
 
 class Transcriber:
-    def __init__(self, settings: dict[str, Any], model_override: str | None = None, progress=None):
+    def __init__(self, settings: dict[str, Any], model_override: str | None = None, progress=None, fetch_gpu: bool = False):
+        """fetch_gpu: allowed to download the NVIDIA files (only the tray app does, so two
+        processes never download them at once)."""
         from faster_whisper import WhisperModel
 
-        _add_cuda_dll_dirs()
+        from . import gpu_pack
+
         self.settings = settings
         speech_cfg = dict(settings["speech"], model=model_override) if model_override else settings["speech"]
+        # First start on a PC with a capable NVIDIA card: fetch the CUDA libraries before choosing the device.
+        if fetch_gpu:
+            gpu_pack.ensure(speech_cfg, progress)
+        _add_cuda_dll_dirs()
         model, device, computes = resolve(speech_cfg)
         model_path = download(model, progress)
         self.model = None
