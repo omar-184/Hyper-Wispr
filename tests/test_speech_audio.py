@@ -1,4 +1,5 @@
 import io
+import threading
 import wave
 
 import numpy as np
@@ -59,3 +60,105 @@ def test_chime_is_valid_wav():
     data = audio._tone_wav(audio._CHIMES["start"])
     with wave.open(io.BytesIO(data)) as w:
         assert w.getnchannels() == 1 and w.getnframes() > 1000
+
+
+class FakeWhisper:
+    """Stands in for faster-whisper's model: records what it was asked."""
+
+    def __init__(self, multilingual):
+        self.model = type("CT2", (), {"is_multilingual": multilingual})()
+        self.calls = []
+
+    def detect_language(self, audio):
+        if not self.model.is_multilingual:
+            raise RuntimeError("detect_language can only be called on multilingual models")
+        return "ar", 0.9, [("ar", 0.9), ("en", 0.1)]
+
+    def transcribe(self, audio, **kwargs):
+        self.calls.append(kwargs)
+        segment = type("Seg", (), {"text": " Hello there. "})()
+        return [segment], type("Info", (), {"language": kwargs["language"]})()
+
+
+def transcriber(multilingual, languages):
+    t = object.__new__(speech.Transcriber)
+    t.settings = {"speech": {"language": "", "languages": languages, "beam_size": 5, "vad_filter": True}, "dictionary": []}
+    t.model = FakeWhisper(multilingual)
+    t.multilingual = multilingual
+    return t
+
+
+def test_english_only_model_with_arabic_switched_on_still_works():
+    t = transcriber(False, ["en", "ar"])
+    assert t.transcribe(np.zeros(16000, dtype=np.float32)) == "Hello there."
+    assert t.model.calls[-1]["language"] == "en"
+
+
+def test_multilingual_model_detects_between_chosen_languages():
+    t = transcriber(True, ["en", "ar"])
+    t.transcribe(np.zeros(16000, dtype=np.float32))
+    assert t.model.calls[-1]["language"] == "ar"
+
+
+def test_only_model_choices_need_a_reload():
+    old = {"model": "auto", "device": "auto", "compute_type": "auto", "languages": ["en"], "beam_size": 5}
+    assert not speech.needs_reload(old, {**old, "languages": ["en", "ar"], "beam_size": 3})
+    assert speech.needs_reload(old, {**old, "model": "large-v3"})
+    assert speech.needs_reload(old, {**old, "device": "cpu"})
+
+
+class FakeStream:
+    def __init__(self, device, fail_start=False):
+        self.device, self.fail_start, self.closed = device, fail_start, False
+
+    def start(self):
+        if self.fail_start:
+            raise OSError("device busy")
+
+    def stop(self):
+        raise OSError("driver hiccup")
+
+    def close(self):
+        self.closed = True
+
+
+def bare_recorder(device):
+    rec = object.__new__(audio.Recorder)
+    rec._sd = type("SD", (), {"query_devices": staticmethod(lambda *a: {"default_samplerate": 48000})})()
+    rec.cfg = {"input_device": device}
+    rec._chunks, rec._lock, rec._stream = [], threading.Lock(), None
+    rec.device, rec.fell_back = device, False
+    return rec
+
+
+def test_unplugged_microphone_falls_back_to_the_default(monkeypatch):
+    rec = bare_recorder("Headset, MME")
+    opened = []
+
+    def open_stream(device, rate):
+        if device == "Headset, MME":
+            raise ValueError("No input device matching 'Headset, MME'")
+        opened.append(FakeStream(device))
+        return opened[-1]
+
+    monkeypatch.setattr(rec, "_open", open_stream)
+    rec.start()
+    assert rec.fell_back and rec.device is None and opened[-1].device is None
+    # A driver error while stopping still returns the recording and frees the device.
+    assert rec.stop().size == 0 and opened[-1].closed and rec._stream is None
+
+
+def test_stream_that_fails_to_start_is_closed(monkeypatch):
+    rec = bare_recorder(None)
+    streams = []
+
+    def open_stream(device, rate):
+        streams.append(FakeStream(device, fail_start=True))
+        return streams[-1]
+
+    monkeypatch.setattr(rec, "_open", open_stream)
+    try:
+        rec.start()
+    except OSError:
+        pass
+    assert streams and all(s.closed for s in streams)

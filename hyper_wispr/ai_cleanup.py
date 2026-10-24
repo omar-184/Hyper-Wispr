@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-import urllib.error
+import re
 import urllib.request
+from collections import Counter
 from typing import Any
 
 from . import context
@@ -42,6 +43,7 @@ MEDICAL_RULES = """Medical writing rules:
 - Spell drug names, conditions, procedures and anatomy correctly.
 - Keep every number, dose, unit, frequency and route exactly as spoken (e.g. "5 mg PO BID").
 - Write numbers as digits for doses, vitals and lab values.
+- If the speaker corrects a number, dose or unit, keep both as spoken; never choose between them.
 - Keep standard clinical abbreviations (BP, HR, CBC, MRI, PRN, etc.)."""
 
 
@@ -93,7 +95,7 @@ def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
     try:
         url = cfg["ollama_url"].rstrip("/") + "/api/chat"
         out = _post(url, payload, cfg.get("timeout_seconds", 8))["message"]["content"].strip()
-    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as e:
+    except Exception as e:  # optional step: any failure (timeout, Ollama restarting, bad reply) keeps the text
         log.warning("AI cleanup skipped: %s", e)
         return text
     out = out.removeprefix("<dictation>").removesuffix("</dictation>").strip()
@@ -102,7 +104,99 @@ def refine(text: str, settings: dict[str, Any], app_type: str) -> str:
     if not out or len(out) > 2 * len(text) + 40 or len(out) < 0.3 * len(text):
         log.warning("AI cleanup output rejected (length check)")
         return text
+    # A model can quietly change a dose. In medical mode every number must survive exactly;
+    # otherwise it may drop a number the speaker corrected, but never add or change one.
+    if not numbers_kept(text, out, exact=bool(cfg.get("medical_mode"))):
+        log.warning("AI cleanup output rejected: it changed a number")
+        return text
     return out
+
+
+# ---- number check -----------------------------------------------------------
+
+_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_BIG = {"thousand": 1000, "million": 1_000_000}
+_FRACTIONS = {"½": 0.5, "¼": 0.25, "¾": 0.75}
+_ASCII_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_DIGITS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.\d+|\d+")
+_LIST_MARKER = re.compile(r"(?m)^[ \t]*(?:\d{1,2}[.)]|[-*•])[ \t]+")
+
+
+def _digit(word: str) -> int | None:
+    return _UNITS[word] if word in _UNITS and _UNITS[word] < 10 else None
+
+
+def _spoken_number(words: list[str], i: int) -> tuple[float, int]:
+    """Read one number written in words starting at words[i]: "one hundred and twenty",
+    "zero point five", "two and a half". Returns (value, index after it)."""
+    total = current = 0
+    last = ""  # kind of the previous number word
+    start = i
+    while i < len(words):
+        w = words[i]
+        if _digit(w) is not None and last in ("", "tens", "hundred", "big"):
+            current += _UNITS[w]
+            last = "unit"
+        elif w in _UNITS and last in ("", "hundred", "big"):
+            current += _UNITS[w]
+            last = "teen"
+        elif w in _TENS and last in ("", "hundred", "big"):
+            current += _TENS[w]
+            last = "tens"
+        elif w == "hundred" and last in ("", "unit", "teen", "tens", "big"):
+            current = (current or 1) * 100
+            last = "hundred"
+        elif w in _BIG and last != "big":
+            total += (current or 1) * _BIG[w]
+            current = 0
+            last = "big"
+        elif w == "and" and last in ("hundred", "big") and i + 1 < len(words) and (words[i + 1] in _UNITS or words[i + 1] in _TENS):
+            pass  # "one hundred and five"
+        elif w == "point" and i + 1 < len(words) and _digit(words[i + 1]) is not None:
+            decimals = ""
+            i += 1
+            while i < len(words) and _digit(words[i]) is not None:
+                decimals += str(_digit(words[i]))
+                i += 1
+            return total + current + float("0." + decimals), i
+        elif w == "and" and i > start and words[i + 1 : i + 3] == ["a", "half"]:
+            return total + current + 0.5, i + 3
+        else:
+            break
+        i += 1
+    return total + current, i
+
+
+def _numbers(text: str) -> Counter:
+    text = _LIST_MARKER.sub("", text.translate(_ASCII_DIGITS))
+    text = re.sub(r"(\d):00\b", r"\1", text)  # "5:00 PM" is the same time as "5 PM"
+    values = [float(n.replace(",", "")) for n in _DIGITS.findall(text)]
+    values += [v for ch, v in _FRACTIONS.items() for _ in range(text.count(ch))]
+    words = re.findall(r"[a-z]+", text.lower())
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if w in _UNITS or w in _TENS or w == "hundred" or (w == "point" and i + 1 < len(words) and _digit(words[i + 1]) is not None):
+            value, i = _spoken_number(words, i)
+            values.append(value)
+        elif w == "half":
+            values.append(0.5)
+            i += 1
+        else:
+            i += 1
+    return Counter(round(v, 6) for v in values)
+
+
+def numbers_kept(before: str, after: str, exact: bool) -> bool:
+    """Do the numbers in `after` match those in `before`? Spoken forms count ("twenty five" = 25).
+    exact: the same numbers; otherwise `after` may only drop some, never add or change one."""
+    was, now = _numbers(before), _numbers(after)
+    return now == was if exact else not (now - was)
 
 
 def try_start_ollama(settings: dict[str, Any]) -> bool:

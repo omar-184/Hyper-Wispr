@@ -99,6 +99,13 @@ def pick_language(cfg: dict[str, Any], detected: list[tuple[str, float]] | None)
     return max(allowed, key=lambda lang: probs.get(lang, 0.0))
 
 
+RELOAD_KEYS = ("model", "device", "compute_type")
+
+
+def needs_reload(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    return any(old.get(k) != new.get(k) for k in RELOAD_KEYS)
+
+
 class Transcriber:
     def __init__(self, settings: dict[str, Any]):
         from faster_whisper import WhisperModel
@@ -125,6 +132,9 @@ class Transcriber:
             compute = computes[0]
             self.model = WhisperModel(model, device=device, compute_type=compute)
         self.description = f"{model} on {device.upper()} ({compute})"
+        # Settings that need a new model when they change; the others are read on every dictation.
+        self.load_settings = {k: settings["speech"].get(k) for k in RELOAD_KEYS}
+        self.multilingual = bool(getattr(self.model.model, "is_multilingual", True))
 
     def transcribe(self, audio: np.ndarray | str) -> str:
         cfg = self.settings["speech"]
@@ -132,9 +142,12 @@ class Transcriber:
             audio = prepare_audio(audio)
         detected = None
         allowed = [lang for lang in cfg.get("languages", []) if lang]
-        if not cfg.get("language") and len(allowed) > 1 and not isinstance(audio, str):
-            _lang, _prob, detected = self.model.detect_language(audio)
-        language = pick_language(cfg, detected)
+        if not self.multilingual:
+            language = "en"  # English-only models (*.en, distil) can't detect or speak anything else
+        else:
+            if not cfg.get("language") and len(allowed) > 1 and not isinstance(audio, str):
+                _lang, _prob, detected = self.model.detect_language(audio)
+            language = pick_language(cfg, detected)
         # The initial prompt nudges Whisper toward your spelling of names and jargon.
         words = self.settings.get("dictionary", [])
         prompt = ("Vocabulary: " + ", ".join(words) + ".") if words else None

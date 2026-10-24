@@ -26,12 +26,72 @@ SPOKEN_PUNCTUATION: list[tuple[str, str]] = [
 
 _NO_SPACE_BEFORE = ".,;:!?)"
 
+# Some commands are also ordinary words, often in clinical notes: "sigmoid colon", "postoperative
+# period", "a new line was placed", "next line of therapy". They stay words when the words around
+# them show they are part of the sentence.
+_DETERMINERS = {
+    "a", "an", "the", "this", "that", "these", "those", "my", "your", "his", "her", "its", "our", "their",
+    "of", "in", "into", "on", "to", "from", "within", "per", "each", "every", "any", "no", "same", "whole", "entire",
+}
+_WORD_BEFORE = {
+    "colon": _DETERMINERS | {
+        "sigmoid", "transverse", "ascending", "descending", "right", "left", "distal", "proximal", "redundant",
+        "spastic", "irritable", "rectosigmoid", "dilated", "normal", "remaining", "residual",
+    },
+    "period": _DETERMINERS | {
+        "menstrual", "postoperative", "post-operative", "postop", "post-op", "perioperative", "preoperative",
+        "intraoperative", "postpartum", "peripartum", "perinatal", "neonatal", "postnatal", "incubation", "washout",
+        "refractory", "latent", "induction", "grace", "waiting", "trial", "honeymoon", "gestational", "prodromal",
+        "interim", "window", "time", "study", "last", "first", "short", "long", "brief",
+    },
+    "new line": _DETERMINERS,
+    "next line": _DETERMINERS,
+    "new paragraph": _DETERMINERS,
+}
+_WORD_AFTER = {
+    "colon": {
+        "cancer", "carcinoma", "polyp", "polyps", "mass", "wall", "mucosa", "resection", "lesion", "tumor", "tumour",
+        "biopsy", "prep", "screening", "and", "or", "was", "is", "were",
+    },
+    "period": {
+        "of", "was", "is", "were", "during", "when", "and", "or", "with", "after", "before", "following", "for",
+        "from", "to", "in",
+    },
+    "new line": {"of", "placed", "placement", "was", "inserted"},
+    "next line": {"of", "therapy", "treatment", "agent", "regimen"},
+}
+# "a six-week period", "over a 48 hour period"
+_NUMBER_AND_UNIT = re.compile(
+    r"(?:\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|twenty|thirty|forty|"
+    r"sixty|ninety))[\s-]*(?:minute|hour|day|week|month|year)$"
+)
+_SENTENCE_END = ".!?:;\n"
+
+
+def _is_unit_position(text: str, start: int, end: int) -> bool:
+    """True for "5 mm" or "120/80 mm Hg": the word is a unit, not a hesitation."""
+    return bool(re.search(r"\d\s*$", text[:start]) or re.match(r"\s*hg\b", text[end:], re.IGNORECASE))
+
 
 def remove_fillers(text: str, fillers: list[str]) -> str:
     if not fillers:
         return text
-    pattern = r"\b(?:" + "|".join(re.escape(f) for f in fillers) + r")\b[,.]?\s*"
-    return re.sub(pattern, "", text, flags=re.IGNORECASE)
+    words = "|".join(re.escape(f) for f in fillers)
+    pattern = re.compile(r"(?P<pre>,\s*)?\b(?P<w>" + words + r")\b(?P<post>[,.]?)\s*", re.IGNORECASE)
+
+    def drop(m: re.Match[str]) -> str:
+        word = m.group("w")
+        # "ER", "MM": all capitals means an abbreviation, which Whisper never uses for a hesitation.
+        if len(word) > 1 and word.isupper():
+            return m.group(0)
+        if _is_unit_position(m.string, m.start("w"), m.end("w")):
+            return m.group(0)
+        before = m.string[: m.start()].rstrip()
+        if m.group("post") == "." and before and before[-1] not in _SENTENCE_END:
+            return ". "  # "stable, um. Next" keeps its sentence end
+        return " " if m.group("pre") and before else ""  # "the patient, um, is" -> "the patient is"
+
+    return pattern.sub(drop, text)
 
 
 def apply_backtrack(text: str, phrases: list[str]) -> str:
@@ -49,10 +109,43 @@ def apply_backtrack(text: str, phrases: list[str]) -> str:
     return text
 
 
+def _reads_as_word(phrase: str, m: re.Match[str]) -> bool:
+    """Should this spoken command stay a word because of the words around it?"""
+    if phrase not in _WORD_BEFORE:
+        return False
+    text = m.string
+    before = text[: m.start("word")].rstrip()
+    sentence_start = not before or before[-1] in _SENTENCE_END
+    prev = "" if sentence_start else before.split()[-1].strip("\"“”'‘’()[],").lower()
+    after = re.match(r"\W*?([\w'’-]+)", text[m.end("word") :])
+    nxt = after.group(1) if after else ""
+    trail = m.group("trail")
+    if prev in _WORD_BEFORE[phrase] or prev.endswith(("'s", "’s")):
+        return True
+    if phrase == "colon":
+        # A sentence never starts with ":", so a "colon" there is the organ.
+        return sentence_start or nxt.lower() in _WORD_AFTER["colon"]
+    if phrase == "period":
+        if _NUMBER_AND_UNIT.search(before.lower()) or nxt.lower() == "of":
+            return True
+        if not before:
+            return True  # a dictation doesn't start with "."
+        if trail == "." or (nxt[:1].isupper() and nxt != "I"):
+            return False  # Whisper heard a sentence end here too
+        return trail == "," or nxt.lower() in _WORD_AFTER["period"]
+    return nxt.lower() in _WORD_AFTER.get(phrase, ())
+
+
 def apply_spoken_punctuation(text: str) -> str:
     for phrase, symbol in SPOKEN_PUNCTUATION:
-        pat = re.compile(r"[,.]?\s*\b" + phrase + r"\b[,.]?", re.IGNORECASE)
-        text = pat.sub(lambda _m, s=symbol: s if s.startswith("\n") else s + " ", text)
+        pat = re.compile(r"[,.]?\s*\b(?P<word>" + phrase + r")\b(?P<trail>[,.]?)", re.IGNORECASE)
+
+        def replace(m: re.Match[str], phrase: str = phrase, symbol: str = symbol) -> str:
+            if _reads_as_word(phrase, m):
+                return m.group(0)
+            return symbol if symbol.startswith("\n") else symbol + " "
+
+        text = pat.sub(replace, text)
     # Tidy spacing introduced above.
     text = re.sub(r"[ \t]+([" + re.escape(_NO_SPACE_BEFORE) + r"])", r"\1", text)
     text = re.sub(r"\(\s+", "(", text)
@@ -62,7 +155,10 @@ def apply_spoken_punctuation(text: str) -> str:
 
 def apply_replacements(text: str, replacements: dict[str, str]) -> str:
     for src, dst in replacements.items():
-        text = re.sub(r"\b" + re.escape(src) + r"\b", dst, text, flags=re.IGNORECASE)
+        if not src.strip():
+            continue
+        # A function, not a template, so backslashes in the replacement (C:\Users) are kept as typed.
+        text = re.sub(r"(?<!\w)" + re.escape(src) + r"(?!\w)", lambda _m, dst=dst: dst, text, flags=re.IGNORECASE)
     return text
 
 
@@ -87,9 +183,11 @@ def clean(text: str, settings: dict[str, Any]) -> str:
     text = text.strip()
     if cfg.get("remove_fillers", True):
         text = remove_fillers(text, cfg.get("filler_words", []))
-    text = apply_backtrack(text, cfg.get("backtrack_phrases", []))
+        text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
+    # Punctuation first: "scratch that" removes back to the last sentence end, including a spoken "period".
     if cfg.get("spoken_punctuation", True):
         text = apply_spoken_punctuation(text)
+    text = apply_backtrack(text, cfg.get("backtrack_phrases", []))
     text = apply_replacements(text, settings.get("replacements", {}))
     text = re.sub(r"[ \t]{2,}", " ", text).strip(" \t")
     return capitalize_sentences(text)

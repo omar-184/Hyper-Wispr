@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import queue
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 from typing import Any
 
-from . import ai_cleanup, cleanup, config, context, hotkeys, overlay, paste
+from . import ai_cleanup, cleanup, config, context, hotkeys, overlay, paste, settings_ui
 from .audio import Recorder, chime, rms
 from .history import History
 
 log = logging.getLogger("hyper_wispr")
 
-COLORS = {"loading": "#9e9e9e", "idle": "#3f7cff", "recording": "#e53935", "working": "#ffb300"}
-LABELS = {"loading": "Loading speech model…", "idle": "Ready", "recording": "Listening…", "working": "Transcribing…"}
+COLORS = {"loading": "#9e9e9e", "idle": "#3f7cff", "recording": "#e53935", "working": "#ffb300", "error": "#616161"}
+LABELS = {
+    "loading": "Loading speech model…",
+    "idle": "Ready",
+    "recording": "Listening…",
+    "working": "Transcribing…",
+    "error": "Speech model didn't load",
+}
 
 
 def process_text(raw: str, settings: dict[str, Any], app_type: str) -> str:
@@ -34,10 +42,24 @@ def process_text(raw: str, settings: dict[str, Any], app_type: str) -> str:
 
 class App:
     def __init__(self) -> None:
-        self.settings = config.load()
+        self.settings_problem = ""
+        try:
+            self.settings = config.load()
+        except (OSError, ValueError) as e:
+            # A typo from editing settings.json by hand must not stop the app from starting.
+            log.warning("settings.json could not be read: %s", e)
+            self.settings = copy.deepcopy(config.DEFAULTS)
+            self.settings_problem = "Your settings file couldn't be read, so Hyper-Wispr started with the default settings."
+            if isinstance(e, ValueError):
+                try:
+                    backup = config.recover()
+                    self.settings_problem += f" The old file was kept as {backup.name}."
+                except OSError:
+                    log.exception("Could not set the broken settings file aside")
         self.recorder = Recorder(self.settings)
-        self.history = History(config.app_dir() / "history.sqlite3")
+        self.history = _open_history()
         self.transcriber = None
+        self.load_error = ""
         self.jobs: queue.Queue = queue.Queue()
         self.target: context.AppContext | None = None
         self.status = "loading"
@@ -46,7 +68,12 @@ class App:
         # so they only queue an action; the controller thread does the actual work.
         self.actions: queue.Queue = queue.Queue()
         self.recording = False
+        self.pending = 0  # recordings waiting to be transcribed and typed
+        self._status_lock = threading.Lock()
+        self._worker_started = False
         self.session = 0
+        self.last_text = ""
+        self._mic_warned: str | None = None
         self.settings_window: subprocess.Popen | None = None
         self.overlay = overlay.Overlay(
             level=self.recorder.level,
@@ -62,7 +89,16 @@ class App:
             on_start=lambda: self.actions.put(self.start_recording),
             on_stop=lambda: self.actions.put(self.stop_recording),
             on_cancel=lambda: self.actions.put(self.cancel_recording),
+            on_combo=self._on_combo,
         )
+
+    def _on_combo(self) -> None:
+        # Not queued like the others: it has to happen while the keys are still down.
+        if sys.platform == "win32" and hotkeys.uses_menu_key(self.machine.combo):
+            try:
+                hotkeys.mask_menu_key()
+            except Exception:  # never let this stop the dictation itself
+                log.exception("Could not keep the Start menu from opening")
 
     def controller(self) -> None:
         while True:
@@ -75,11 +111,18 @@ class App:
     # ---- recording -------------------------------------------------------
     def start_recording(self) -> None:
         if self.transcriber is None:
-            log.info("Pressed the hotkey while the speech model is still loading")
+            log.info("Pressed the hotkey before the speech model was ready")
             self.machine.reset()
-            self.notify("Still getting ready", "The speech model is loading. The icon turns blue when you can dictate.")
+            if self.load_error:
+                self.notify("Speech model didn't load", self.load_error)
+            else:
+                self.notify("Still getting ready", "The speech model is loading. The icon turns blue when you can dictate.")
             return
         if self.recording:
+            return
+        if settings_ui.shortcut_capture_active():
+            log.info("Ignoring the shortcut while the Settings window records a new one")
+            self.machine.reset()
             return
         # Remember the app now: by the time we paste, focus is what matters.
         self.target = context.current()
@@ -91,10 +134,15 @@ class App:
             chime("error", self.settings["audio"]["sounds"])
             self.notify("Microphone problem", f"Couldn't open the microphone: {e}")
             return
-        self.recording = True
+        wanted = self.settings["audio"].get("input_device")
+        if self.recorder.fell_back and self._mic_warned != wanted:
+            self._mic_warned = wanted  # once, not on every dictation
+            self.notify("Using the default microphone", f"{str(wanted).split(',')[0]} isn't available, so the Windows default microphone is being used. You can pick another one in Settings.")
+        with self._status_lock:
+            self.recording = True
         self.session += 1
         chime("start", self.settings["audio"]["sounds"])
-        self.set_status("recording")
+        self._settle_status()
         # Safety net for a forgotten hands-free recording.
         session = self.session
         limit = self.settings["audio"].get("max_seconds", 360)
@@ -111,29 +159,30 @@ class App:
     def stop_recording(self) -> None:
         if not self.recording:
             return
-        self.recording = False
         audio = self.recorder.stop()
         chime("stop", self.settings["audio"]["sounds"])
         seconds = len(audio) / self.recorder.rate
         level = rms(audio)
         log.info("Recorded %.1fs from '%s', level %.4f", seconds, self.recorder.device_name(), level)
-        if seconds < self.settings["audio"]["min_seconds"]:
-            self.set_status("idle")
-            return
-        if level < self.settings["audio"].get("silence_threshold", 0.003):
-            self.set_status("idle")
+        keep = seconds >= self.settings["audio"]["min_seconds"]
+        if keep and level < self.settings["audio"].get("silence_threshold", 0.003):
+            keep = False
             self.notify("Didn't hear anything", f"The microphone '{self.recorder.device_name()}' picked up only silence. Check it's the right one and not muted.")
-            return
-        self.set_status("working")
-        self.jobs.put((audio, seconds, self.target or context.AppContext(), time.time()))
+        with self._status_lock:
+            self.recording = False
+            if keep:
+                self.pending += 1
+                self.jobs.put((audio, seconds, self.target or context.AppContext(), time.time()))
+        self._settle_status()
 
     def cancel_recording(self) -> None:
         if not self.recording:
             return
-        self.recording = False
         self.recorder.stop()
         chime("error", self.settings["audio"]["sounds"])
-        self.set_status("idle")
+        with self._status_lock:
+            self.recording = False
+        self._settle_status()
 
     def notify(self, title: str, message: str) -> None:
         log.info("Notice: %s: %s", title, message)
@@ -148,29 +197,49 @@ class App:
         while True:
             audio, seconds, target, t0 = self.jobs.get()
             try:
-                raw = self.transcriber.transcribe(audio)
-                final = process_text(raw, self.settings, target.app_type)
-                if final:
-                    self.wait_for_keys_released()
-                    paste.insert(final, self.settings)
-                else:
-                    self.notify("No speech recognized", "Nothing was typed. Try speaking a little louder or closer to the microphone.")
-                latency = time.time() - t0
-                # No dictated text in the log: it can contain patient information.
-                log.info("[%s/%s] %.1fs audio, %.2fs latency, %d characters typed", target.process, target.app_type, seconds, latency, len(final))
-                if self.settings["history"]["enabled"]:
-                    self.history.add(target.process, target.app_type, seconds, raw, final, latency)
+                self.dictate(audio, seconds, target, t0)
             except Exception:
                 log.exception("Dictation failed")
                 chime("error", self.settings["audio"]["sounds"])
+                self.notify("Dictation failed", "Something went wrong while transcribing. The details are in the log (tray menu, Open log folder).")
             finally:
-                if self.jobs.empty():
-                    self.set_status("idle")
+                with self._status_lock:
+                    self.pending -= 1
+                self._settle_status()
+
+    def dictate(self, audio, seconds: float, target: context.AppContext, t0: float) -> None:
+        raw = self.transcriber.transcribe(audio)
+        try:
+            final = process_text(raw, self.settings, target.app_type)
+        except Exception:
+            # The words are still worth having: type them as heard rather than lose them.
+            log.exception("Cleaning up the text failed; typing the transcript as heard")
+            final = raw.strip()
+        latency = time.time() - t0
+        # No dictated text in the log: it can contain patient information.
+        log.info("[%s/%s] %.1fs audio, %.2fs latency, %d characters typed", target.process, target.app_type, seconds, latency, len(final))
+        if self.settings["history"]["enabled"]:
+            try:
+                # Before pasting, so the text survives a paste that goes wrong.
+                self.history.add(target.process, target.app_type, seconds, raw, final, latency)
+            except sqlite3.Error:
+                log.exception("Could not save the dictation to history")
+        if not final:
+            self.notify("No speech recognized", "Nothing was typed. Try speaking a little louder or closer to the microphone.")
+            return
+        self.last_text = final
+        self.wait_for_keys_released()
+        try:
+            paste.insert(final, self.settings, context.current().process)
+        except Exception:
+            log.exception("Typing the text failed")
+            chime("error", self.settings["audio"]["sounds"])
+            self.notify("Couldn't type the text", "Choose \"Copy last dictation\" in the tray menu, then paste it with Ctrl+V.")
 
     def wait_for_keys_released(self, timeout: float = 3.0) -> None:
         """Pasting while Ctrl/Win are still held would send the wrong shortcut (e.g. Win+Ctrl+V)."""
         deadline = time.time() + timeout
-        while self.machine.pressed and time.time() < deadline:
+        while hotkeys.modifiers_held(self.machine) and time.time() < deadline:
             time.sleep(0.02)
 
     def load_models(self) -> None:
@@ -179,14 +248,19 @@ class App:
         if self.icon is not None:
             self.icon.title = "Hyper-Wispr: loading speech model (the first start downloads it, which can take a few minutes)"
         try:
-            self.transcriber = Transcriber(self.settings)
+            transcriber = Transcriber(self.settings)
         except Exception as e:
             log.exception("Could not load the speech model")
-            self.set_status("loading")
-            self.notify("Speech model failed to load", f"{e}. Check your internet connection for the first download, then restart Hyper-Wispr.")
+            self.load_error = f"{e}. Check your internet connection for the first download, then restart Hyper-Wispr."
+            self._settle_status()
+            self.notify("Speech model failed to load", self.load_error)
             return
-        threading.Thread(target=self.worker, daemon=True).start()
-        self.set_status("idle")
+        self.load_error = ""
+        self.transcriber = transcriber
+        if not self._worker_started:
+            self._worker_started = True
+            threading.Thread(target=self.worker, daemon=True).start()
+        self._settle_status()
         keys = " + ".join(hotkeys.display_name(k) for k in self.settings["push_to_talk_keys"])
         log.info("Ready: speech model %s, microphone '%s'", self.transcriber.description, self.recorder.device_name())
         self.notify("Hyper-Wispr is ready", f"Hold {keys} and speak, or tap it for hands-free.")
@@ -204,6 +278,21 @@ class App:
                 log.warning("Ollama is not running; AI cleanup will be skipped until it is.")
 
     # ---- tray ------------------------------------------------------------
+    def _settle_status(self) -> None:
+        """Show what is happening right now. Worked out from the state every time rather than set
+        directly, because the threads overlap: a dictation that finishes typing must not hide the
+        "Listening" pill of the next one, which may already be recording."""
+        with self._status_lock:
+            if self.recording:
+                status = "recording"
+            elif self.pending:
+                status = "working"
+            elif self.transcriber is not None:
+                status = "idle"
+            else:
+                status = "error" if self.load_error else "loading"
+            self.set_status(status)
+
     def set_status(self, status: str) -> None:
         self.status = status
         self.overlay.show({"recording": overlay.RECORDING, "working": overlay.WORKING}.get(status, overlay.HIDDEN))
@@ -213,8 +302,10 @@ class App:
 
     def open_settings(self, *_: Any) -> None:
         """Show the Settings window. It is a separate process so it can't freeze dictation."""
+        if settings_ui.focus_window():
+            return  # already open, maybe behind other windows or minimized
         if self.settings_window is not None and self.settings_window.poll() is None:
-            return  # already open
+            return  # still starting up
         if getattr(sys, "frozen", False):
             cmd = [sys.executable, "--settings"]
         else:
@@ -223,6 +314,19 @@ class App:
             self.settings_window = subprocess.Popen(cmd)
         except OSError:
             log.exception("Could not open the Settings window; opening settings.json instead")
+            _open(config.settings_path())
+            return
+        threading.Thread(target=self._check_settings_window, args=(self.settings_window,), daemon=True).start()
+
+    def _check_settings_window(self, proc: subprocess.Popen) -> None:
+        """A window that can't start (e.g. a broken WebView2) would otherwise just never appear."""
+        try:
+            code = proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            return  # it's open
+        if code != 0:
+            log.error("The Settings window exited with code %s", code)
+            self.notify("Settings couldn't open", "Opening the settings file instead. The details are in the log (tray menu, Open log folder).")
             _open(config.settings_path())
 
     def watch_settings(self) -> None:
@@ -236,10 +340,15 @@ class App:
             self._settings_mtime = mtime
             try:
                 self.reload_settings()
+            except ValueError as e:
+                log.warning("settings.json has a mistake: %s", e)
+                self.notify("Settings not applied", f"settings.json has a mistake ({e}). Hyper-Wispr keeps using the previous settings until it's fixed.")
             except Exception:
                 log.exception("Could not apply the changed settings")
 
     def reload_settings(self, *_: Any) -> None:
+        from .speech import needs_reload
+
         old_speech = dict(self.settings["speech"])
         # update() instead of clear()+update(): other threads read self.settings at any moment.
         self.settings.update(config.load())
@@ -249,17 +358,26 @@ class App:
         self.overlay.enabled = self.settings["overlay"].get("enabled", True)
         self.overlay.position = self.settings["overlay"].get("position", "bottom")
         log.info("Settings reloaded")
-        if self.settings["speech"] != old_speech:
+        # Languages, beam size, the dictionary and so on are read at every dictation; only a
+        # different model or device needs loading (which briefly holds two models in memory).
+        speech = self.settings["speech"]
+        if self.transcriber is not None:
+            reload = needs_reload(self.transcriber.load_settings, speech)
+        else:
+            reload = speech != old_speech  # retry a failed first load with the new choice
+        if reload:
             threading.Thread(target=self.reload_model, daemon=True).start()
 
     def reload_model(self) -> None:
         """Load the newly chosen speech model in the background; the old one keeps working meanwhile."""
-        from .speech import Transcriber
+        from .speech import Transcriber, needs_reload
 
         with self._model_lock:
             if self.transcriber is None:
                 self.load_models()  # the first load failed or is still running; this retries it
                 return
+            if not needs_reload(self.transcriber.load_settings, self.settings["speech"]):
+                return  # an earlier reload already loaded it
             log.info("Speech settings changed; loading the new model")
             try:
                 new = Transcriber(self.settings)
@@ -271,15 +389,34 @@ class App:
             log.info("Now using speech model %s", new.description)
             self.notify("Speech model changed", f"Now using {new.description}.")
 
-    def paste_last(self, *_: Any) -> None:
-        last = self.history.last()
-        if last:
-            paste.insert(last, self.settings)
+    def copy_last(self, *_: Any) -> None:
+        """Clicking the tray menu takes the focus away from your app, so pasting from there would
+        land nowhere. Copying lets you paste it wherever you want."""
+        text = self.last_text
+        if not text:
+            try:
+                text = self.history.last() or ""  # e.g. after a restart
+            except sqlite3.Error:
+                log.exception("Could not read the history")
+        if not text:
+            self.notify("Nothing to copy yet", "Your last dictation will be available here.")
+            return
+        try:
+            paste.copy(text)
+        except Exception:
+            log.exception("Copying the last dictation failed")
+            self.notify("Couldn't copy", "The clipboard is busy. Try again in a moment.")
+            return
+        self.notify("Copied", "Your last dictation is on the clipboard. Paste it with Ctrl+V.")
 
     def toggle_ai(self, *_: Any) -> None:
-        cfg = self.settings["ai_cleanup"]
-        cfg["enabled"] = not cfg["enabled"]
-        config.save(self.settings)
+        enabled = not self.settings["ai_cleanup"]["enabled"]
+        self.settings["ai_cleanup"]["enabled"] = enabled  # the menu tick changes right away
+        try:
+            # Only this one setting, so changes saved meanwhile by the Settings window are kept.
+            config.update({"ai_cleanup.enabled": enabled})
+        except Exception:
+            log.exception("Could not save the AI cleanup setting")
 
     def run(self) -> None:
         import pystray
@@ -288,7 +425,7 @@ class App:
             pystray.MenuItem(lambda _: LABELS[self.status], None, enabled=False),
             # default=True: clicking the tray icon itself opens Settings.
             pystray.MenuItem("Settings…", self.open_settings, default=True),
-            pystray.MenuItem("Paste last dictation", self.paste_last),
+            pystray.MenuItem("Copy last dictation", self.copy_last),
             pystray.MenuItem("AI cleanup", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
             pystray.MenuItem("Open log folder", lambda *_: _open(config.app_dir())),
             pystray.Menu.SEPARATOR,
@@ -300,11 +437,24 @@ class App:
     def _start_background(self, icon) -> None:
         # Runs once the tray icon exists, so status updates and notifications have somewhere to go.
         icon.visible = True
+        if self.settings_problem:
+            self.notify("Settings were reset", self.settings_problem)
         threading.Thread(target=self.controller, daemon=True).start()
         threading.Thread(target=self.watch_settings, daemon=True).start()
         hotkeys.listen(self.machine)
         with self._model_lock:  # a speech-settings change during the first load waits for it
             self.load_models()
+
+
+def _open_history() -> History:
+    path = config.app_dir() / "history.sqlite3"
+    try:
+        return History(path)
+    except sqlite3.DatabaseError:
+        # A damaged history file must not stop dictation: keep it aside and start a new one.
+        log.exception("The history file is damaged; starting a new one")
+        path.replace(path.with_name("history.broken.sqlite3"))
+        return History(path)
 
 
 def _make_icon(color: str, size: int = 64):
