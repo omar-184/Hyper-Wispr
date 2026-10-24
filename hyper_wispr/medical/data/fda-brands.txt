@@ -5,16 +5,13 @@
 Abilify
 Abilify Asimtufii
 Abilify Maintena
-Abiraterone Acetate
 Abraxane
 Abrilada
 Absorica
-Absorica Ld
 Acanya
 Accrufer
 Acd-a
 Acetadote
-Acetic Acid
 Aciphex
 Actemra
 Actemra ACTPen
@@ -24,14 +21,12 @@ Actimmune
 Activase
 Activella
 Actonel
-Actoplus Met
+Actoplus
 Actos
 Acular
-Acular Ls
 Acuvail
 Aczone
 Adakveo
-Adalimumab-bwwd
 Adasuve
 Adbry
 Adcetris
@@ -47,7 +42,6 @@ Adrenalin Vials
 Adstiladrin
 Advair
 Advair Diskus
-Advair Hfa
 Adzenys Xr-odt
 Adzynma
 Afinitor
@@ -69,7 +63,6 @@ Akten
 Akynzeo
 Albenza
 Albuminex
-Albuterol Sulfate
 Aldactone
 Aldurazyme
 Alecensa
@@ -77,7 +70,7 @@ Alhemo
 Alimta
 Alkindi
 Aloprim
-Alphagan P
+Alphagan
 Alrex
 Altafluor
 Altreno
@@ -91,7 +84,7 @@ Ambelvist
 Ambien
 Ameluz
 Amidate
-Aminosyn Ii
+Aminosyn
 Aminosyn-PF
 Amitiza
 Amjevita
@@ -149,12 +142,10 @@ Asceniv
 Asclera
 Ascor
 Asmanex
-Asmanex Hfa
 Asparlas
 Aspruzyo Sprinkle
-Astagraf Xl
+Astagraf
 Atacand
-Atacand Hct
 Atebrioz
 Atelvia
 Ativan
@@ -163,7 +154,6 @@ Atoncy
 Atorvaliq
 Atralin
 Atropen Auto-Injector
-Atropine Sulfate
 Atrovent
 Attruby
 Atzumi
@@ -174,7 +164,6 @@ Aukelso
 Aurlumyn
 Auryxia
 Austedo
-Austedo Xr
 Auvelity
 Auvi-Q
 Auvi-q
@@ -186,7 +175,6 @@ Aveed
 Avgemsi
 Avlayah
 Avonex
-Avonex Pen
 Avopef
 Avsola
 Avtozma
@@ -199,17 +187,14 @@ Azactam
 Azasite
 Azelex
 Azilect
-Azilsartan Medoxomil
 Azmiro
 Azopt
 Azor
 Azstarys
 Azulfidine
 BESREMi
-BESREMi Pen
 BabyBIG
 Bactrim
-Bactrim Ds
 Bafiertam
 Balcoltra
 Balversa
@@ -226,10 +211,8 @@ Belbuca
 Beleodaq
 Belrapzo
 Belsomra
-Bendamustine Hydrochloride
 Bendeka
 Benicar
-Benicar Hct
 Benlysta
 Benzamycin
 Beovu
@@ -238,21 +221,18 @@ Beqalzi
 Besivance
 Besponsa
 Betadine
-Betamethasone Dipropionate
-Betamethasone Valerate
 Betapace
-Betapace Af
 Betasept
 Betaseron
 Bethkis
 Betimol
-Betoptic S
+Betoptic
 Bevespi Aerosphere
 Bexlutry
 Beyaz
 Beyfortus
 BiDil
-Bicillin Cr
+Bicillin
 Bicillin L-a
 Biktarvy
 Bildyos
@@ -285,18 +265,15 @@ Brekiya
 Brenzavvy
 Breo Ellipta
 Brevibloc
-Brevital Sodium
 Breztri
 Bridion
 Brilinta
-Brimonidine Tartrate
 Brineura
 Brinsupri
 Brisdelle
 Briumvi
 Briviact
 Brixadi
-Bromocriptine Mesylate
 Bromsite
 Brukinsa
 Bryhali
@@ -304,12 +281,11 @@ Brynovin
 Bss Plus
 Bumex
 Buphenyl
-Bupivacaine HCl
 Butrans
 Byetta
 Byfavo
 Bylvay
-Bynfezia Pen
+Bynfezia
 Byooviz
 Byqlovi
 Bysanti
@@ -319,9 +295,6 @@ Cablivi
 Cabometyx
 Cabtreo
 Caduet
-Caffeine Citrate
-Calcium Chloride
-Calcium Gluconate
 Caldolor
 Calquence
 Cambia
@@ -338,23 +311,18 @@ Carbaglu
 Carbatrol
 Carbogen
 Cardamyst
-Cardene Iv
+Cardene
 Cardiolite
 Cardizem
-Cardizem Cd
-Cardizem La
 Cardura
 Carnitor
-Carnitor Sf
 CaroSpir
 Casodex
-Caspofungin Acetate
 Cathflo Activase
 Caverject
 Caverject Impulse
 Cavhanza
 Cayston
-Cefazolin Sodium
 Cefotan
 Celebrex
 Celestone Soluspan
@@ -369,11 +337,9 @@ Cerezyme
 Cerianna
 Cervidil
 Cetrotide
-Cevimeline Hydrochloride
 Chantix
 Chemet
 ChiRhoStim
-Chloroprocaine Hci
 Cholbam
 Choletec
 Cialis
@@ -385,42 +351,29 @@ Cimzia
 Cinqair
 Cinvanti
 Cipro
-Cipro Hc
 Claforan
 Clarinex
 Clenpiq
 Cleocin
-Cleocin Hydrochloride
-Cleocin Phosphate
-Cleocin T
 Cleviprex
 Cligavyx
 Climara
-Climara Pro
 Clindagel
-Clindamycin Phosphate
 Clindesse
 Clinimix
-Clinimix E
 Clinolipid
-Clobetasol Propionate
-Clomipramine Hydrochloride
 Clozaril
 Coagadex
 Coartem
 Cobenfy
-Codeine Sulfate
 Colcrys
-Colesevelam Hydrochloride
 Colestid
-Collagenase Santyl
 Columvi
 Coly-Mycin
 Combigan
 Combivent Respimat
 Combivir
 Combogesic
-Combogesic Iv
 Cometriq
 Complera
 ConZip
@@ -434,18 +387,16 @@ Copaxone
 Copiktra
 Cordran
 Coreg
-Coreg Cr
 Corlanor
 Cortef
 Cortenema
 Cortifoam
-Cortisporin Tc
+Cortisporin
 Cortrosyn
 Corvert
 Cosela
 Cosentyx
 Cosopt
-Cosopt Pf
 Cotellic
 Cotempla Xr-odt
 Coxanto
@@ -470,28 +421,24 @@ Cystadane
 Cystadrops
 Cystagon
 Cystaran
-Cysteine Hydrochloride
-Cysto-Conray Ii
+Cysto-Conray
 Cystografin
 Cystografin Dilute
 Cysview
 Cytalux
 Cytomel
 Cytotec
-DOPamine Hydrochloride
 DaTscan
 Daliresp
 Dalvance
 Dantrium
 Danyelza
 Danziten
-Dapzura Rt
+Dapzura
 Daraprim
 Darzalex
 Darzalex Faspro
-Darzalex Iv
 Datroway
-Daunorubicin Hydrochloride
 Daurismo
 Dawnzera
 Daxxify
@@ -503,7 +450,6 @@ Ddavp
 Decnupaz
 Defencath
 Definity
-Definity Rt
 Defitelio
 Delestrogen
 Delflex
@@ -511,7 +457,6 @@ Delstrigo
 Demerol
 Demser
 Denavir
-Denosumab-BMWO
 Depakote
 Depen
 Depo-Medrol
@@ -522,7 +467,6 @@ Dermotic
 Descovy
 Desferal
 Desmoda
-Desmopressin Acetate
 Detectnet
 Detrol
 Dexedrine
@@ -536,30 +480,24 @@ Dificid
 Diflucan
 Dilaudid
 Diovan
-Diovan Hct
 Dipentum
 Diprivan
 Diprolene
 Diskets
 Diuril
 Divigel
-Dobutamine Hydrochloride
 Docivyx
 Dojolvi
-Dopamine Hci
-Dopamine Hydrochloride
 Dopram
 Doptelet
 Doptelet Sprinkle
-Doryx Mpc
+Doryx
 Dotarem
 Dovato
-Doxapram Hydrochloride
 Doxil
-Doxorubicin Hydrochloride
 Drax Exametazime
+Draximage
 Draximage Dtpa
-Draximage Maa
 Drizalma Sprinkle
 Droxia
 Duaklir Pressair
@@ -575,7 +513,7 @@ Duramorph
 Durezol
 Durysta
 Duvyzat
-Dyanavel Xr
+Dyanavel
 Dymista
 Dyrenium
 Dysport
@@ -591,13 +529,11 @@ Edecrin
 Edex
 Edluar
 Edurant
-Edurant Ped
 Effexor
 Effient
 Efudex
 Egaten
-Egrifta Sv
-Egrifta Wr
+Egrifta
 Ekterly
 Elahere
 Elaprase
@@ -613,7 +549,7 @@ Eliquis Sprinkle
 Elitek
 Ella
 Ellence
-Elliotts B
+Elliotts
 Elmiron
 Elrexfio
 Elucirem
@@ -629,7 +565,6 @@ Emrelis
 Emrosi
 Emsam
 Emtriva
-Enalapril Maleate
 Enbrel
 Enbumyst
 Encelto
@@ -644,19 +579,15 @@ Enspryng
 Enstilar
 Entresto
 Entyvio
-Entyvio Pen
 Envarsus
 Eohilia
 Eovist
 Epaned
 Epclusa
-Ephedrine Sulfate
 Epidiolex
 Epiduo Forte
-Epinephrine Professional
 Epioxa Cross-linking
 Epipen
-Epipen Jr
 Epivir
 Epkinly
 Epogen
@@ -670,16 +601,11 @@ Erivedge
 Erleada
 Ertaczo
 Ery-Ped
-Erythrocin Lactobionate
-Erythromycin Ethylsuccinate
 Erzofri Extended-release
 Esbriet
-Escitalopram
-Esmolol Hydrochloride
 Estring
 EstroGel
 Etcamah
-Ethambutol Hydrochloride
 Ethamolin
 Ethyol
 Etopophos
@@ -698,13 +624,11 @@ Exdensur
 Exelderm
 Exelon
 Exforge
-Exforge Hct
 Exjade
 Exparel
 Extraneal
 Exxua
 Eylea
-Eylea Hd
 Eysuvis
 Fabhalta
 Fabior
@@ -721,7 +645,6 @@ Femara
 Femlyv
 Femring
 Fensolvi
-Fentanyl Citrate
 FeraBright
 Feraheme
 Ferriprox
@@ -751,14 +674,14 @@ Flyrcado
 Fml Forte
 Focalin
 Focinvez
-Follistim Aq
+Follistim
 Folotyn
 Forane
 Forfivo
 Forteo
 Forzinity
 Fosamax
-Fosaprepitant
+Fosamax Plus
 Foscavir
 Fosrenol
 Fotivda
@@ -775,7 +698,6 @@ Gablofen
 Gadavist
 Galafold
 Gamifant
-Ganirelix Acetate
 Garzulys
 Gastrocrom
 Gastrografin
@@ -813,10 +735,10 @@ Gozellix
 Grafapex
 Gralise
 Granix
+Gvoke
 Gvoke HypoPen
-Gvoke Pfs
 Gvoke VialDx
-Gwyn Lo
+Gwyn
 Hadlima
 Halaven
 Halog
@@ -829,8 +751,8 @@ Hemangeol
 Hemgenix
 Hemiclor
 Hemlibra
-Heparin Sodium
 Hepcludex
+Hepzato
 Herceptin
 Herceptin Hylecta
 Hercessi
@@ -839,7 +761,6 @@ Herzuma
 Hetlioz
 Hextend
 Hicon
-Histamine Positive
 Horizant
 Hulio
 Humalog
@@ -848,15 +769,13 @@ Humira
 Humulin
 Hycamtin
 Hydrea
-Hydrocortisone Butyrate
-Hydromorphone Hydrochloride
 Hyftor
 Hympavzi
 Hyrimoz
 Hyrnuo
-Hysingla Er
+Hysingla
 Hyzaar
-IC-Green
+IDkit Hp
 INFeD
 Ibrance
 Ibsrela
@@ -864,7 +783,7 @@ Ibtrozi
 Iclusig
 Icotyde
 Idacio
-Idamycin Pfs
+Idamycin
 Idhifa
 Idvynso
 Ifex
@@ -892,9 +811,7 @@ Inbrija
 Increlex
 Incruse Ellipta
 Inderal
-Inderal Xl
 Indocin
-Infant Dextrose
 Infasurf
 Infed
 Inflectra
@@ -907,13 +824,12 @@ Inlexzo
 Inluriyo
 Inlyta
 Inmazeb
-InnoPran Xl
+InnoPran
 Inomax
 Inpefa
 Inqovi
 Inrebic
 Inspra
-Insulin Glargine-aldy
 Intelence
 InterSol
 Intralipid
@@ -925,7 +841,6 @@ Invega Hafyera
 Invega Sustenna
 Invega Trinza
 Invokamet
-Invokamet Xr
 Invokana
 Inzirqo
 Iomervu
@@ -933,9 +848,7 @@ Iqirvo
 Iressa
 Isembyld
 Isentress
-Isolyte S
-Isopto Atropine
-Isosorbide Dinitrate
+Isolyte
 Isovue
 Isovue-m
 Istalol
@@ -951,7 +864,6 @@ Iyuzeh
 Izervay
 Jadenu
 Jakafi
-Jakafi Xr
 Jalyn
 Janumet
 Januvia
@@ -963,14 +875,13 @@ Jaypirca
 Jelmyto
 Jemperli
 Jentadueto
-Jentadueto Xr
 Jesduvroq
 Jeuveau
 Jevtana
 Jideytro
 Jobevne
 Joenja
-Jornay Pm
+Jornay
 Journavx
 Jubbonti
 Jubereq
@@ -1010,7 +921,7 @@ Kinevac
 Kirsty
 Kisqali
 Kisunla
-Kitabis Pak
+Kitabis
 Klaron
 Klisyri
 Klonopin
@@ -1031,7 +942,6 @@ Kyleena
 Kyprolis
 Kyxata
 Kyzatrex
-Labetalol Hydrochloride
 Lactated Ringers
 Lamictal
 Lampit
@@ -1039,7 +949,6 @@ Lamprene
 Lamzede
 Langlara
 Lanoxin
-Lanreotide Acetate
 Lantus
 Lantus Solostar
 Lasix
@@ -1048,7 +957,6 @@ Lastacaft
 Latisse
 Latuda
 Lazcluze
-Lecanemab Autoinjector
 Lemtrada
 Lenvima
 Leqembi
@@ -1058,12 +966,11 @@ Lerochol
 Lescol
 Letairis
 Letybo
-Leucoflex Cgp
+Leucoflex
 Leukeran
 Leukine
 Levemir
 Levophed
-Levothyroxine Sodium
 Levoxyl
 Levulan Kerastick
 Lexapro
@@ -1072,7 +979,6 @@ Lialda
 Librax
 Libtayo
 Licart
-Lidocaine Hci
 Lidoderm
 Lifyorli
 Likmez
@@ -1085,13 +991,13 @@ Lipitor
 Lipofen
 Lisraya
 Litfulo
-Lithium Carbonate
 Lithobid
 Lithostat
 Livalo
 Livdelzi
 Livmarli
 Livtencity
+Lo Loestrin
 Loargys
 Locametz
 Lodoco
@@ -1104,11 +1010,9 @@ Lopreeza
 Lopressor
 Loqtorzi
 Lorbrena
-Loreev Xr
+Loreev
 Lotemax
-Lotemax Sm
 Lotensin
-Lotensin Hct
 Lotronex
 Lovenox
 Lucemyra
@@ -1137,17 +1041,13 @@ Lynavoy
 Lynkuet
 Lynparza
 Lyrica
-Lyrica Cr
 Lysodren
 Lytenava
 Lyumjev
 Lyvispah
 Macrilen
 Macrobid
-Magnesium Sulfate
 Malarone
-Marcaine
-Marcaine Spinal
 Margenza
 Marinol
 Marplan
@@ -1159,12 +1059,11 @@ Maxalt-mlt
 Maxidex
 Maxitrol
 Mayzent
-Medical Air
+Medical
 Medrol
 Megatope
 Mekinist
 Mektovi
-Memantine Hydrochloride
 Membraneblue
 Menopur
 Menostar
@@ -1173,20 +1072,17 @@ Mepsevii
 Merilog
 Mesnex
 Mestinon
-Metadate Cd
-Methadone Hydrochloride
+Metadate
 Methadose
-Methenamine Hippurate
 Methylin
 Metopirone
-Metoprolol Succinate
 Miacalcin
-Micardis Hct
+Micardis
 Miebo
 Mimrylo
 Minivelle
 Minocin
-Miochol E
+Miochol
 Miostat
 Miplyffa
 Mircera
@@ -1197,10 +1093,9 @@ Miudella
 Modeyso
 Monjuvi
 Monoferric
-Morphine Sulfate
 Motegrity
 Motofen
-Motpoly Xr
+Motpoly
 Mounjaro
 Movantik
 MoviPrep
@@ -1260,7 +1155,7 @@ Neurolite
 Neurontin
 Nevanac
 Nexavar
-Nexiclon Xr
+Nexiclon
 Nexium
 Nexletol
 Nexlizet
@@ -1270,24 +1165,19 @@ Nexterone
 Nextstellis
 Nexviazyme
 Ngenla
-Nicardipine Hydrochloride
 Nicotrol
 Niktimvo
 Ninlaro
 Nipent
-Nipride Rtu
+Nipride
 Nithiodote
 Nitro-dur
 Nitrofurantion Macrocrystals
-Nitrofurantoin Mono
-Nitroglycerin Lingual
 Nitrolingual
 Nitrostat
-Nitrous Oxide
 Nityr
 Nivestym
 Norditropin
-Norepinephrine Bitartrate
 Noritate
 Norliqva
 Normosol-R
@@ -1310,7 +1200,7 @@ Nulibry
 Nulojix
 Numbrino
 Nuplazid
-Nurtec Odt
+Nurtec
 NuvaRing
 Nuvaring
 Nuvessa
@@ -1333,7 +1223,6 @@ Ohtuvayre
 Ojemda
 Ojjaara
 Olinvyk
-Olmesartan Medoxomil-hydrochlorothiazide
 Olpruva
 Olumiant
 Omegaven
@@ -1355,7 +1244,7 @@ Onpattro
 Onswik
 Ontralfy
 Onureg
-Onyda Xr
+Onyda
 Opdivo
 Opdivo Qvantig
 Opdualag
@@ -1400,12 +1289,8 @@ Oxbryta
 Oxervate
 Oxistat
 Oxlumo
-Oxtellar Xr
+Oxtellar
 OxyContin
-Oxycodone Hydrochloride
-Oxygen Compressed
-Oxygen-Helium Mixture
-Oxygen-Nitrogen Mixture
 Oxytrol
 Ozempic
 Oziltus
@@ -1418,7 +1303,6 @@ Pamelor
 Pancreaze
 Panhematin
 Panretin
-Pantoprazole Sodium
 Papzimeos
 Parnate
 Parsabiv
@@ -1429,9 +1313,8 @@ Paxlovid
 Pedmark
 Pegasys
 Pemazyre
-Pemetrexed Dipotassium
 Pemfexy
-Pemrydi Rtu
+Pemrydi
 Pentasa
 Perforomist
 Peridex
@@ -1439,14 +1322,11 @@ Perikabiven
 Perjeta
 Pertzye
 Pheburane
-Phendimetrazine Tartrate
-Phenylephrine Hci
-Phenylephrine Hydrochloride
 Phesgo
 Phexx
 Phexxi
-Phospholine Iodide
 Photofrin
+Photrexa Cross-linking
 Phoxillum
 Phyrago
 Physiolyte
@@ -1457,7 +1337,7 @@ Pitocin
 Pivya
 Pixclara
 Plaquenil
-Plasma-Lyte A
+Plasma-Lyte
 Plavix
 Plegisol
 Plegridy
@@ -1471,10 +1351,6 @@ Pombiliti
 Ponvory
 Posfrea
 Posluma
-Potassium Acetate
-Potassium Chloride
-Potassium Citrate
-Potassium Phosphates
 Poteligeo
 Pradaxa
 Praluent
@@ -1494,12 +1370,10 @@ Prevduo
 Prevymis
 Prexxartan
 Prezcobix
-Prezcobix Ped
 Prezista
 Prialt
 Priftin
 Prilosec
-Primaquine Phosphate
 Primaxin
 Prismasol
 Pristiq
@@ -1521,7 +1395,6 @@ Propecia
 Proscar
 Prostin
 Protonix
-Protopam Chloride
 Provayblue
 Provera
 Provigil
@@ -1531,13 +1404,12 @@ Prudoxin
 Pulmicort
 Pulmicort Flexhaler
 Pulmicort Respules
-Pulmotech Maa
+Pulmotech
 Pulmozyme
 Purixan
 Pylarify
 Pylarify Truvu
 Pylera
-Pyridostigmine Bromide
 Pyrukynd
 Pyzchiva
 Qalsody
@@ -1554,7 +1426,7 @@ Qnasl
 Qsymia
 Qudexy
 Quelicin
-QuilliChew Er
+QuilliChew
 Quillivant
 Quiofic
 Qulipta
@@ -1563,7 +1435,7 @@ Quviviq
 Quzyttir
 Qvar Redihaler
 R-Gene
-Radicava Ors
+Radicava
 Radiogardase
 Raldesy
 Rapiblyk
@@ -1578,7 +1450,7 @@ Reblozyl
 Rebyota
 Recarbrio
 Reclast
-Reconstituted Air
+Reconstituted
 Recorlev
 Recothrom
 Rectiv
@@ -1642,7 +1514,6 @@ Rivfloza
 Rizafilm
 Robaxin
 Rocklatan
-Rocuronium Bromide
 Rolvedon
 Romvimza
 Rowasa
@@ -1689,7 +1560,6 @@ Sdamlo
 Secuado
 Segluromet
 Selarsdi
-Selenious Acid
 Selzentry
 Semglee
 Sensipar
@@ -1699,13 +1569,11 @@ Serevent
 Sernivo
 Seroquel
 Serostim
-Sertraline HCl
 Sevenfact
 Seysara
 Sezaby
 Short Ragweed
 Signifor
-Signifor Lar
 Siklos
 Silenor
 Siliq
@@ -1727,10 +1595,6 @@ Skytrofa
 Slynd
 Smoflipid
 Soaanz
-Sodium Acetate
-Sodium Bicarbonate
-Sodium Chloride
-Sodium Phosphates
 Sofdra
 Sogroya
 Sohonos
@@ -1746,9 +1610,7 @@ Soma
 Somatuline Depot
 Somavert
 Soolantra
-Sorbitol-Mannitol
 Sorilux
-Sotalol Hydrochloride
 Sotyktu
 Sotylize
 Sovaldi
@@ -1786,7 +1648,6 @@ Subvenite
 Sucraid
 Suflave
 Sular
-Sulconazole Nitrate
 Sulfamylon
 Sulfatrim
 Sunlenca
@@ -1822,7 +1683,7 @@ TachoSil
 Taclonex
 Tadliq
 Tafinlar
-Tagitol V
+Tagitol
 Tagrisso
 Takhzyro
 Talicia
@@ -1832,7 +1693,7 @@ Talzenna
 Tamiflu
 Targretin
 Tarpeyo
-Tascenso Odt
+Tascenso
 Tasigna
 Tasmar
 Tauvid
@@ -1846,8 +1707,7 @@ Tecentriq Hybreza
 Tecfidera
 TechneLite
 Technegas
-Technescan Hdp
-Technescan Pyp
+Technescan
 Tecvayli
 Teflaro
 Tegretol
@@ -1860,8 +1720,6 @@ Tepezza
 Tepmetko
 Terlivaz
 Testim
-Tetracaine Hydrochloride
-Tetracycline Hydrochloride
 Tevimbra
 Tezruly
 Tezspire
@@ -1870,17 +1728,15 @@ Thalomid
 Tham
 Thermazene
 Thiola
-Thiola Ec
 Thymoglobulin
 Thyquidity
 Thyrogen
 Tiazac
 Tibsovo
-Tice Bcg
+Tice
 Tigan
 Tiglutik
 Tikosyn
-Timolol Gfs
 Timoptic
 Timoptic-XE
 Tindamax
@@ -1889,12 +1745,11 @@ Tis-u-sol
 Tissueblue
 Tivdak
 Tivicay
-Tivicay Pd
 Tlando
 Tobi
 Tobi Podhaler
 TobraDex
-Tobradex St
+Tobradex
 Tobrex
 Tofidence
 Tolak
@@ -1903,11 +1758,9 @@ Tonmya
 Topamax
 Topicort
 Toprol
-Toprol Xl
 Torisel
 Tosymra
 Toujeo
-Toujeo Max
 Toviaz
 Tpn Electrolytes
 Tpoxx
@@ -1916,7 +1769,7 @@ Tradjenta
 Tralement
 Transderm Scop
 Travasol
-Travatan Z
+Travatan
 Trazimera
 Treanda
 Trelegy Ellipta
@@ -1924,24 +1777,22 @@ Trelstar
 Tremfya
 Trental
 Tresiba
-Tretinoin Cream
 Treximet
 Tri-luma
 Tribenzor
 Tricor
 Tridesilon Cream
 Triesence
-Trijardy Xr
+Trijardy
 Trikafta
 Trileptal
 Trintellix
 Triptodur
 Trisenox
 Triumeq
-Triumeq Pd
 Trodelvy
 Trogarzo
-Trokendi Xr
+Trokendi
 TrophAmine
 Trudhesa
 Trulance
@@ -1971,7 +1822,6 @@ Tyruko
 Tyrvaya
 Tysabri
 Tyvaso
-Tyvaso Dpi
 Tyzavan
 Tzield
 Ubrelvy
@@ -1995,8 +1845,6 @@ Uptravi
 Urocit-k
 Uroxatral
 Urso Forte
-Ustekinumab-aauz
-Ustekinumab-ttwe
 Utebzi
 Uzedy
 Vabomere
@@ -2010,11 +1858,9 @@ Valstar
 Valtoco
 Valtrex
 Vancocin
-Vancomycin Hydrochloride
 Vandazole
 Vanflyta
 Vanrafia
-Varibar Honey
 Varibar Nectar
 Varibar Pudding
 Varithena
@@ -2037,12 +1883,9 @@ Vemlidy
 Venclexta
 Venofer
 Ventolin
-Ventolin Hfa
 Veopoz
 Veozah
 Veppanu
-Verapamil Hci
-Verapamil Hydrochloride
 Veregen
 Verkazia
 Vermox
@@ -2083,6 +1926,8 @@ Vogelxo
 Volumex
 Vonjo
 Voquezna
+Voquezna Dual
+Voquezna Triple
 Voranigo
 Voraxaze
 Vosevi
@@ -2099,7 +1944,7 @@ Vusion
 Vyalev
 Vybrique
 Vyepti
-Vykat Xr
+Vykat
 Vykoura
 Vyleesi
 Vyloy
@@ -2161,9 +2006,8 @@ Xocova
 Xofigo
 Xofluza
 Xolair
-Xolair Pfs
 Xolremdi
-Xopenex Hfa
+Xopenex
 Xospata
 Xpovio
 Xromi
@@ -2173,7 +2017,6 @@ Xtoro
 Xtrenbo
 Xuriden
 Xylocaine
-Xylocaine Mpf
 Xyosted
 Xyrem
 Xywav
@@ -2234,7 +2077,6 @@ Zilbrysq
 Zilretta
 Zilxi
 Zimhi
-Zinc Sulfate
 Zinplava
 Zioptan
 Zipsor
@@ -2242,16 +2084,13 @@ Zirabev
 Zirgan
 Zithromax
 Zituvimet
-Zituvimet Xr
 Zituvio
 Zocor
 Zokinvy
 Zoladex
-Zoledronic Acid
 Zolgensma
 Zolinza
 Zoloft
-Zolpidem Tartrate
 Zolymbus
 Zomacton
 Zonalon
@@ -2285,5 +2124,5 @@ Zypitamag
 Zyprexa
 Zytiga
 Zyvox
-iDose Tr
+iDose
 triCitrasol
