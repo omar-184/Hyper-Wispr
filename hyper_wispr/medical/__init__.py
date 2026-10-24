@@ -169,6 +169,61 @@ def _sounds(word: str) -> str:
     return w
 
 
+# Word parts that carry meaning. A word that differs from a term in one of them is another word, not a
+# slip: "hypermagnesemia" isn't "hypomagnesemia", "tachycardic" isn't "tachycardia", "thrombolysis"
+# isn't "thrombosis".
+_LEADS = sorted("""hyper hypo intra extra inter infra supra sub pre post peri ante endo exo ecto epi para retro trans
+    brady tachy micro macro mono poly oligo pan hemi anti dys myo myelo neur nephr hepat gastr enter cyst oste arthr
+    chondr cardi angi arter ven hemat lymph leuk erythr thromb cyt pneum bronch trache laryng pharyng rhin ophthalm
+    crani encephal cerebr spondyl thyr adren pancreat proct ureter urethr pyel men metr mening col colp salping oophor
+    orch prostat mast derm dermat hyster lapar thorac pleur""".split(), key=len, reverse=True)
+_ENDINGS = sorted("""itis itic osis otic emia emic uria uric pnea pneic penia penic rrhagia rrhagic rrhea ectomy otomy
+    ostomy plasty plastic plasia pexy rrhaphy scopy scope scopic graphy gram graph lysis lytic pathy pathic algia
+    megaly cytosis kinesia kinesis kinetic trophy trophic ia ic al ar ary ous ive ion ed er ing y a""".split(),
+    key=len, reverse=True)
+
+
+def _lead(word: str) -> str:
+    return next((p for p in _LEADS if word.startswith(p) and len(word) - len(p) >= 3), "")
+
+
+def _ending(word: str) -> str:
+    return next((e for e in _ENDINGS if word.endswith(e) and len(word) - len(e) >= 3), "")
+
+
+def _consonants(text: str) -> str:
+    return re.sub(r"[aeiouy]", "", text)
+
+
+def changes_meaning(word: str, term: str) -> bool:
+    """True if `term` differs from `word` in a part that carries meaning, so it can't be a slip of it.
+    A vowel slip inside such a part ("pancroatitis", "gallbladdar") is still a slip."""
+    w, t = word.lower(), term.lower()
+    lw, lt = _lead(w), _lead(t)
+    if lw and lt and not (lw.startswith(lt) or lt.startswith(lw)):
+        return True  # hyper/hypo, intra/extra, arter/arthr
+    if lw and not lt and len(lw) >= 4 and lw not in ("ante", "para", "post", "poly") and not t.startswith(lw):
+        return True  # a root the term doesn't have: thyroxine isn't tyrosine
+    ew, et = _ending(w), _ending(t)
+    if ew != et:
+        if len(ew) >= 4 and _consonants(ew) != _consonants(t[-len(ew):]):
+            return True  # "-itis" isn't "-osis", nor "epididymis" for "epididymitis"
+        if ew and et and _consonants(ew) != _consonants(et):
+            if w[: -len(ew)].rstrip("aeiou") == t[: -len(et)].rstrip("aeiou"):
+                return True  # the same stem with another ending: tachycardic, nebulized
+    return False
+
+
+def _edits(a: str, b: str) -> int:
+    """Letters to add, drop or change to turn a into b."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, cb in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (ca != cb))
+    return row[-1]
+
+
 class Lexicon:
     """The words of the active packs, indexed for fast "is there a term that looks like this"."""
 
@@ -195,8 +250,10 @@ class Lexicon:
         self.parts: dict[str, str] = {}
         for low, term in self.terms.items():
             if " " in low:
+                fda = self.source[low].startswith("FDA")
                 for part, written in zip(low.split(), term.split()):
-                    if len(part) >= 5 and part not in self.terms:
+                    # Not the packaging words of brand names ("Compressed", "Sprinkle")
+                    if len(part) >= 5 and part not in self.terms and not (fda and _is_english(part)):
                         self.parts.setdefault(part, written)
         # Single words long enough to compare safely, bucketed by how they start.
         self.words: dict[str, list[tuple[str, str, str]]] = {}
@@ -214,8 +271,8 @@ class Lexicon:
         return self.words.get(_group(word), [])
 
     def best(self, word: str, threshold: float) -> tuple[str, float] | None:
-        """The one term that looks like `word` (ratio >= threshold), or None if there's none or
-        two look about as alike."""
+        """The one term that looks like `word` (ratio >= threshold), or None if there's none, two look
+        about as alike, or the closest means something else ("hypermagnesemia" is never "hypomagnesemia")."""
         w = word.lower()
         ws = _sounds(w)
         scored = []
@@ -225,16 +282,29 @@ class Lexicon:
             m = SequenceMatcher(None, w, key)
             if m.real_quick_ratio() < threshold - 0.1 or m.quick_ratio() < threshold - 0.1:
                 continue
-            score = max(m.ratio(), SequenceMatcher(None, ws, sounds).ratio() - 0.02)
+            score = m.ratio()
+            if score < threshold - 0.2:
+                continue  # sounding alike only counts for words that are spelled alike too ("Qassim")
+            score = max(score, SequenceMatcher(None, ws, sounds).ratio() - 0.02)
             score -= 0.03 * max(0, abs(len(key) - len(w)) - 1)  # "testlist" isn't "testis"
             if score >= threshold:
-                scored.append((score, term))
+                scored.append((score, term, key))
         if not scored:
             return None
         scored.sort(reverse=True)
-        if len(scored) > 1 and scored[1][0] > scored[0][0] - 0.04 and scored[1][1].lower() != scored[0][1].lower():
-            return None  # ambiguous: leave it alone
-        return scored[0][1], scored[0][0]
+        score, term, key = scored[0]
+        if changes_meaning(w, key):
+            return None
+        for other_score, other, other_key in scored[1:]:
+            if other.lower() == term.lower():
+                continue
+            if other_score > score - 0.04:
+                return None  # two terms about as close: leave it alone
+            # One slip from either of two terms that mean different things: "hypetension", "laminoctomy".
+            apart = changes_meaning(key, other_key) or changes_meaning(other_key, key)
+            if apart and _edits(w, other_key) <= _edits(w, key):
+                return None
+        return term, score
 
 
 _lex_cache: tuple[Any, Lexicon | None] = (None, None)
@@ -381,7 +451,7 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
         word = tok.group()
         low = word.lower()
         i += 1
-        if len(word) < 6 or lex.knows(word) or low in known or _is_english(word) or _inflection_of_known(word, lex):
+        if len(word) < 6 or low in known or _is_known(word, lex) or _is_known(_us_spelling(low), lex):
             continue
         # A capital mid-sentence is probably a name: only very close matches.
         before = text[: tok.start()].rstrip()
@@ -395,6 +465,15 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
         pos = tok.end()
     out.append(text[pos:])
     return "".join(out), changes
+
+
+def _is_known(word: str, lex: Lexicon) -> bool:
+    return lex.knows(word) or _is_english(word) or _inflection_of_known(word, lex)
+
+
+def _us_spelling(word: str) -> str:
+    """"haemoglobin" -> "hemoglobin": British spellings are right too, so they're left as they are."""
+    return re.sub(r"our$", "or", word.replace("ae", "e").replace("oe", "e"))
 
 
 def _inflection_of_known(word: str, lex: Lexicon) -> bool:

@@ -79,6 +79,38 @@ def test_specialty_words_are_corrected_when_the_specialty_is_on():
     assert medical.fix("plan for craniotamy", settings(specialties=["neuro"])) == "plan for craniotomy"
 
 
+@pytest.mark.parametrize("heard, written", [
+    ("pancroatitis", "pancreatitis"), ("menengitis", "meningitis"), ("pruritis", "pruritus"),
+    ("gallbladdar", "gallbladder"), ("tachycardoa", "tachycardia"), ("cholelithiosis", "cholelithiasis"),
+])
+def test_vowel_slips_in_word_parts_are_still_corrected(heard, written):
+    assert medical.fix(f"seen for {heard} today", settings()) == f"seen for {written} today"
+
+
+# Correct words the dictionary doesn't have, each one slip away from a term that means something else.
+@pytest.mark.parametrize("word", [
+    "hypermagnesemia", "hypervolemic", "hyporeflexia", "extraperitoneal", "extramedullary", "perioperative",
+    "metrorrhagia", "endometritis", "arteritis", "thrombolysis", "epididymitis", "epiglottitis", "myopathy",
+    "arthropathy", "thyroxine", "echocardiography", "hyperglycemic", "coagulopathic", "neutropenic", "oliguric",
+    "scleral", "nebulized", "hypertonia", "dyskinesia",
+])
+def test_correct_medical_words_are_never_changed_into_another_word(word):
+    s = settings(specialties=list(medical.SPECIALTIES))
+    for text in (f"{word.capitalize()} was noted.", f"we noted {word} today"):
+        assert medical.fix(text, s) == text
+
+
+def test_a_slip_between_two_terms_with_different_meanings_is_left_alone():
+    s = settings(specialties=["neuro"])
+    for heard in ("hypetension", "hyportension", "laminoctomy"):
+        assert medical.fix(f"has {heard} now", s) == f"has {heard} now"
+
+
+def test_names_and_british_spellings_are_left_alone():
+    for text in ("Qassim called back.", "we drove to qassim", "Haemoglobin and oedema noted, paediatrics review."):
+        assert medical.fix(text, settings()) == text
+
+
 def test_ordinary_text_is_left_alone():
     text = ("Thanks for meeting with me yesterday. The committee discussed the proposal, and everyone agreed "
             "that the schedule works. Please send the presentation and remember the parking situation downtown. "

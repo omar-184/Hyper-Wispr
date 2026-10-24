@@ -109,20 +109,32 @@ bipolar disorder
 
 # Symptoms and findings
 dyspnea
+dyspneic
 orthopnea
 tachypnea
+tachypneic
+apnea
+hypopnea
+tachycardic
+bradycardic
+hypoxic
+hypoxemic
 hemoptysis
 wheezing
 crackles
 rhonchi
 stridor
 cyanosis
+cyanotic
 edema
+edematous
 pitting edema
 jaundice
 icterus
+icteric
 pallor
 diaphoresis
+diaphoretic
 nausea
 vomiting
 diarrhea
