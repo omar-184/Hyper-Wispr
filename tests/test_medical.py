@@ -70,6 +70,7 @@ def test_own_word_lists_from_the_folder(no_user_lists):
     ("on apixiban for atrial fibrilation", "on apixaban for atrial fibrillation"),
     ("cef triaxone 2 g daily", "ceftriaxone 2 g daily"),
     ("started dexmedetomadine", "started dexmedetomidine"),
+    ("on nor epinephrine and es omeprazole", "on norepinephrine and esomeprazole"),
 ])
 def test_near_misses_are_corrected(heard, written):
     assert medical.fix(heard, settings(format_units=False)) == written
@@ -78,6 +79,7 @@ def test_near_misses_are_corrected(heard, written):
 @pytest.mark.parametrize("text", [
     "Metoprolol no longer needed.", "Levetiracetam no change.", "Enoxaparin no longer.", "Dopram in the morning.",
     "Norepinephrine at 0.08 mcg/kg/min.", "Increase acetylcysteine to 600 mg.", "Vancomycin or linezolid.",
+    "Start enalapril at 5 mg daily.", "Mass in the left adrenal in 2024.",
 ])
 def test_a_short_word_next_to_a_drug_name_is_kept(text):
     """They were joined as if the speech model had split one term: "no" vanished after 3 in 10 terms."""

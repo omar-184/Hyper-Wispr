@@ -434,7 +434,9 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
                 continue
             exact = lex.terms.get(joined)
             english = sum(_is_english(w) for w in words)
-            if exact and " " not in exact and (english < n or len(joined) >= 9):
+            # A whole term then a short word is two words: "Start enalapril at 5 mg" isn't IV enalaprilat.
+            trailing_word = lex.knows(words[0]) and all(len(w) <= 3 and _is_english(w) for w in words[1:])
+            if exact and " " not in exact and (english < n or len(joined) >= 9) and not trailing_word:
                 match = exact
             # Joined by likeness only when every piece is a fragment: a whole term, or a short word
             # next to one, is a word of its own ("Metoprolol no longer needed" keeps its "no").
