@@ -562,7 +562,8 @@ def _ai_checks(said: str, out: str) -> dict:
     from hyper_wispr import ai_cleanup
 
     return {"markdown": "**" in out or "  \n" in out, "added_route": ai_cleanup.adds_route(said, out),
-            "lines_added": out.count("\n") - said.count("\n"), "numbers_kept": ai_cleanup.numbers_kept(said, out, exact=True)}
+            "lines_added": out.count("\n") - said.count("\n"), "numbers_kept": ai_cleanup.numbers_kept(said, out, exact=True),
+            "meaning_kept": ai_cleanup.keeps_meaning(said, out, settings())}
 
 
 def _ollama_snapshot() -> list:
@@ -881,6 +882,27 @@ print(json.dumps(out))
 """
 
 
+def _uia_probe() -> dict:
+    """What the focused text box offers, to tell why the text around the cursor can or can't be read."""
+    from hyper_wispr import uia
+
+    def job() -> dict:
+        try:
+            u, mod = uia._uia()
+            el = u.GetFocusedElement()
+            text = uia._pattern(el, uia.TEXT_PATTERN, mod.IUIAutomationTextPattern)
+            sel = text.GetSelection() if text is not None else None
+            two = getattr(mod, "IUIAutomationTextPattern2", None)
+            return {"class": el.CurrentClassName, "control": el.CurrentControlType, "framework": el.CurrentFrameworkId,
+                    "text_pattern": text is not None, "selection_ranges": sel.Length if sel is not None else None,
+                    "text_pattern2": two is not None and uia._pattern(el, uia.TEXT_PATTERN2, two) is not None,
+                    "value_pattern": uia._pattern(el, uia.VALUE_PATTERN, mod.IUIAutomationValuePattern) is not None}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
+
+    return uia.run(job, {"error": "timed out"}, timeout=5)
+
+
 @section("text_box_reading")
 def bench_uia(res: dict, desk: Desktop, notepad) -> None:
     """UI Automation: the text around the cursor (context), and what the word learner reads."""
@@ -905,6 +927,7 @@ def bench_uia(res: dict, desk: Desktop, notepad) -> None:
     res["focus_ms"] = round(1000 * median(times), 1)
     res["read_ok"] = f.known and f.editable is True and f.before.endswith("Overnight the patient")
     res["focus"] = {"known": f.known, "editable": f.editable, "before": f.before[-40:], "after": f.after}
+    res["probe"] = _uia_probe()
     desk.set_text(edit, "Ward round notes. " * 1200)  # about 21,000 characters
     handle = uia.remember_focus()
     times = []
@@ -1221,12 +1244,13 @@ def summary() -> str:
     if ai.get("rows"):
         out += ["", f"## AI cleanup ({ai.get('model')}): warm-up {ai.get('warm_up', {}).get('seconds')} s, "
                 f"{ai.get('words_per_second')} words/s", "",
-                "| clip | words | app s | AI used | new: markdown, added route | old: markdown, added route | new output |",
+                "| clip | words | app s | AI used | new: markdown, added route, meaning kept | old: the same | new output |",
                 "|---|---|---|---|---|---|---|"]
         for r in ai["rows"]:
             n, o = r["new"], r["old"]
-            out.append(f"| {r['clip']} | {r['words']} | {r['app']['seconds']} | {r['app_used_ai']} | {n['markdown']}, {n['added_route']} | "
-                       f"{o['markdown']}, {o['added_route']} | {n['output'][:80]!r} |")
+            out.append(f"| {r['clip']} | {r['words']} | {r['app']['seconds']} | {r['app_used_ai']} | "
+                       f"{n['markdown']}, {n['added_route']}, {n.get('meaning_kept')} | "
+                       f"{o['markdown']}, {o['added_route']}, {o.get('meaning_kept')} | {n['output'][:80]!r} |")
         for key in ("after_idle_no_warm_up", "after_idle_with_warm_up"):
             if key in ai:
                 out.append(f"- {key}: {ai[key]['seconds']} s, AI used: {ai[key]['used_ai']}")
