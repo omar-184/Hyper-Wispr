@@ -7,7 +7,6 @@ import os
 import re
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -56,11 +55,19 @@ def gpu_compute_types() -> list[str]:
     return [c for c in _GPU_COMPUTE_PREFERENCE if c in supported]
 
 
+def usable_gpu() -> bool:
+    """An NVIDIA card that can run Whisper: one with float16 or int8 support (GTX 10-series, MX150
+    or newer). Cards limited to float32 (Maxwell and older, e.g. GeForce MX130, GTX 900 series)
+    would need about 3 GB of graphics memory for the large model, and the MX130 fails on its first
+    GPU call. "auto" uses the processor for them; choosing the GPU in Settings still tries the card."""
+    return cuda_available() and any(c != "float32" for c in gpu_compute_types())
+
+
 def resolve(cfg: dict[str, Any]) -> tuple[str, str, list[str]]:
     """Returns (model, device, compute types to try in order)."""
     device = cfg.get("device", "auto")
     if device == "auto":
-        device = "cuda" if cuda_available() else "cpu"
+        device = "cuda" if usable_gpu() else "cpu"
     model = cfg.get("model", "auto")
     if model == "auto":
         model = "large-v3-turbo" if device == "cuda" else "small"

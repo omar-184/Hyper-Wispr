@@ -100,9 +100,9 @@ class Api:
 
     # ---- hardware --------------------------------------------------------
     def gpu_available(self) -> bool:
-        from ..speech import cuda_available
+        from ..speech import usable_gpu
 
-        return cuda_available()
+        return usable_gpu()
 
     def list_microphones(self) -> dict[str, Any]:
         """Input devices of the default sound system (MME on Windows), named so sounddevice

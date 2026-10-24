@@ -123,3 +123,13 @@ def test_no_settings_window_to_focus():
     from hyper_wispr import settings_ui
 
     assert settings_ui.focus_window() is False
+
+
+def test_gpu_available_only_for_cards_that_can_run_whisper(data_dir, monkeypatch):
+    from hyper_wispr import speech
+
+    monkeypatch.setattr(speech, "cuda_available", lambda: True)
+    monkeypatch.setattr(speech, "gpu_compute_types", lambda: ["float32"])
+    assert Api().gpu_available() is False
+    monkeypatch.setattr(speech, "gpu_compute_types", lambda: ["int8_float32", "float32"])
+    assert Api().gpu_available() is True
