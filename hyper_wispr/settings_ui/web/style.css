@@ -1,6 +1,6 @@
 /* The Hyper-Wispr window. Grouped "inset list" layout in the spirit of macOS System Settings,
    adapted to Windows type (Segoe UI Variable). Light and dark follow the Windows app theme.
-   Pages use the whole window: two columns when it is wide, one when it is narrow. */
+   Settings pages are one column across the whole window, so text uses the full width. */
 
 :root {
   color-scheme: light dark;
@@ -136,8 +136,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---- page ------------------------------------------------------------- */
 main { overflow-y: auto; min-height: 0; scroll-behavior: smooth; container-type: inline-size; }
 .page { padding: 30px 40px 48px; }
-.cols { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 24px; align-items: start; }
-@container (min-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); }
 .page.entering { animation: page-in 220ms var(--ease); }
 @keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -146,7 +145,8 @@ h1 {
   font-size: 26px; line-height: 1.15; font-weight: 600;
   letter-spacing: -0.02em; margin: 0 0 4px;
 }
-.lede { color: var(--text-2); margin: 0 0 22px; max-width: 54ch; }
+.lede { color: var(--text-2); margin: 0 0 22px; }
+h1.solo { margin-bottom: 22px; }
 
 .banner {
   display: flex; gap: 10px; align-items: flex-start;

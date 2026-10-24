@@ -87,13 +87,14 @@ def fast_enough(compute: tuple[int, int]) -> bool:
 
 
 def why_not(card: dict[str, Any]) -> str:
-    """Empty if the card can run the speech model; otherwise the reason, in plain words."""
+    """Empty if the card can run the speech model; otherwise the reason, in plain words that
+    follow the card's name ("NVIDIA GeForce MX130 is too old to speed up the speech model")."""
     if not fast_enough(card["compute"]):
-        return "too old to run the speech model (it can only do float32)"
+        return "is too old to speed up the speech model"
     if card["memory"] < MIN_MEMORY:
-        return "doesn't have enough graphics memory (needs 2 GB)"
+        return "doesn't have enough graphics memory (it needs 2 GB)"
     if card["driver"] < MIN_DRIVER:
-        return "needs a newer NVIDIA driver (CUDA 12); update it from nvidia.com"
+        return "needs a newer NVIDIA driver: update it from nvidia.com"
     return ""
 
 
@@ -177,7 +178,7 @@ def wanted(speech_cfg: dict[str, Any]) -> dict[str, Any] | None:
     cards = nvidia_cards()
     for card in cards:
         reason = why_not(card)
-        log.info("NVIDIA graphics card: %s%s", describe(card), f": {reason}, so speech runs on the processor" if reason else "")
+        log.info("NVIDIA graphics card: %s%s", describe(card), f" {reason}, so speech runs on the processor" if reason else "")
     if not cards:
         log.info("No NVIDIA graphics card found; speech runs on the processor")
     return usable_card(cards)

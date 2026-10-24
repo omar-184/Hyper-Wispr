@@ -100,11 +100,21 @@ class Api:
 
     # ---- hardware --------------------------------------------------------
     def gpu_available(self) -> bool:
+        return self.gpu_status()["usable"]
+
+    def gpu_status(self) -> dict[str, Any]:
+        """For the Speech page: can the NVIDIA card speed up the speech model, and if not, why.
+        {"usable", "card" (its name, or "" without one), "reason" (why not, in plain words)}."""
         from .. import gpu_pack
         from ..speech import usable_gpu
 
         # Asking the driver works before the NVIDIA files are downloaded; the tray app fetches them.
-        return gpu_pack.usable_card() is not None or (gpu_pack.libraries_ready() and usable_gpu())
+        cards = gpu_pack.nvidia_cards()
+        card = gpu_pack.usable_card(cards)
+        if card is not None or (gpu_pack.libraries_ready() and usable_gpu()):
+            return {"usable": True, "card": card["name"] if card else "", "reason": ""}
+        name = cards[0]["name"] if cards else ""
+        return {"usable": False, "card": name, "reason": gpu_pack.why_not(cards[0]) if cards else ""}
 
     def list_microphones(self) -> dict[str, Any]:
         """Input devices of the default sound system (MME on Windows), named so sounddevice
