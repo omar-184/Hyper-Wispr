@@ -57,6 +57,9 @@ class Api:
         self._capture = None
         self._download = updates.Downloader()
         self._window = None  # private: pywebview would expose a public attribute to the page
+        self._db = None
+        self._redo = None  # (model name, Transcriber) for "Redo", loaded on first use
+        self._redo_lock = threading.Lock()
 
     # ---- settings --------------------------------------------------------
     def get_state(self) -> dict[str, Any]:
@@ -176,47 +179,98 @@ class Api:
         except Exception as e:
             return {"running": False, "models": [], "error": str(e)}
 
-    # ---- history ---------------------------------------------------------
-    def _history_db(self) -> sqlite3.Connection | None:
-        path = config.app_dir() / "history.sqlite3"
-        if not path.exists():
-            return None
-        return sqlite3.connect(path, timeout=5)
+    # ---- history, notes, learned words ------------------------------------
+    def _history(self):
+        from ..history import History
 
-    def get_history(self, limit: int = 200) -> list[dict[str, Any]]:
-        db = self._history_db()
-        if db is None:
-            return []
+        if self._db is None:
+            self._db = History(config.app_dir() / "history.sqlite3")
+        return self._db
+
+    def get_history(self, limit: int = 200, search: str = "") -> list[dict[str, Any]]:
         try:
-            rows = db.execute(
-                "SELECT id, created, app, seconds, final_text, raw_text FROM history ORDER BY id DESC LIMIT ?",
-                (int(limit),),
-            ).fetchall()
-        except sqlite3.Error:
+            return self._history().recent(int(limit), search or "")
+        except (sqlite3.Error, OSError):
+            log.exception("Reading history failed")
             return []
-        finally:
-            db.close()
-        return [
-            {"id": r[0], "created": r[1], "app": r[2] or "", "seconds": r[3] or 0, "text": r[4] or "", "raw": r[5] or ""}
-            for r in rows
-        ]
 
     def delete_history(self, item_id: int | None = None) -> bool:
-        db = self._history_db()
-        if db is None:
-            return True
         try:
-            if item_id is None:
-                db.execute("DELETE FROM history")
-            else:
-                db.execute("DELETE FROM history WHERE id = ?", (int(item_id),))
-            db.commit()
+            self._history().delete(None if item_id is None else int(item_id))
             return True
         except sqlite3.Error:
             log.exception("Deleting history failed")
             return False
-        finally:
-            db.close()
+
+    def redo_dictation(self, item_id: int) -> dict[str, Any]:
+        """Transcribe a kept recording again with the bigger "redo" model. Runs in this window's
+        process, so dictation carries on meanwhile."""
+        from ..app import process_text
+        from ..speech import Transcriber
+
+        try:
+            history = self._history()
+            item = history.get(int(item_id))
+            audio = history.recording(int(item_id))
+            if item is None or audio is None:
+                return {"ok": False, "error": "The recording of this dictation is no longer kept."}
+            settings = config.load()
+            model = settings["history"].get("redo_model") or "large-v3-turbo"
+            with self._redo_lock:
+                if self._redo is None or self._redo[0] != model:
+                    self._redo = (model, Transcriber(settings, model_override=model))
+                transcriber = self._redo[1]
+                transcriber.settings = settings
+                raw = transcriber.transcribe(audio)
+            text = process_text(raw, settings, item["app_type"] or "other")
+            if text:
+                history.update_text(int(item_id), text)
+            return {"ok": True, "text": text}
+        except Exception as e:
+            log.exception("Redoing a dictation failed")
+            return {"ok": False, "error": str(e)}
+
+    def get_notes(self) -> list[dict[str, Any]]:
+        try:
+            return self._history().notes()
+        except sqlite3.Error:
+            log.exception("Reading notes failed")
+            return []
+
+    def save_note(self, body: str, note_id: int | None = None) -> dict[str, Any]:
+        try:
+            return {"ok": True, "id": self._history().save_note(body, None if note_id is None else int(note_id))}
+        except sqlite3.Error as e:
+            log.exception("Saving a note failed")
+            return {"ok": False, "error": str(e)}
+
+    def delete_note(self, note_id: int) -> bool:
+        try:
+            self._history().delete_note(int(note_id))
+            return True
+        except sqlite3.Error:
+            log.exception("Deleting a note failed")
+            return False
+
+    def get_suggestions(self) -> list[dict[str, Any]]:
+        try:
+            return self._history().suggestions()
+        except sqlite3.Error:
+            return []
+
+    def answer_suggestion(self, word: str, add: bool) -> bool:
+        """Add a learned word to the dictionary, or turn it down. Either way it isn't offered again."""
+        try:
+            if add:
+                settings = config.load()
+                words = settings.get("dictionary", [])
+                if word.lower() not in (w.lower() for w in words):
+                    config.update({"dictionary": [*words, word]})
+            self._history().dismiss_suggestion(word)
+            return True
+        except Exception:
+            log.exception("Answering a word suggestion failed")
+            return False
 
     def copy_text(self, text: str) -> bool:
         try:
@@ -245,16 +299,11 @@ class Api:
         """Totals and a day-by-day count of words for the dashboard, worked out from the history."""
         empty = {"dictations": 0, "words": 0, "seconds": 0.0, "week_words": 0, "wpm": 0, "minutes_saved": 0, "streak": 0, "today_words": 0,
                  "daily": [{"day": d, "words": 0} for d in _last_days(days)]}
-        db = self._history_db()
-        if db is None:
-            return empty
         try:
-            rows = db.execute("SELECT created, seconds, final_text FROM history").fetchall()
-        except sqlite3.Error:
+            return stats_from_daily(self._history().daily(), days)
+        except (sqlite3.Error, OSError):
+            log.exception("Reading usage totals failed")
             return empty
-        finally:
-            db.close()
-        return compute_stats(rows, days)
 
     def start_app(self) -> bool:
         """Start the tray app when it isn't running (e.g. after "Quit" from the tray)."""
@@ -380,6 +429,17 @@ def compute_stats(rows: list[tuple], days: int = 14) -> dict[str, Any]:
         seconds += secs or 0.0
         day = datetime.date.fromtimestamp(created).isoformat()
         per_day[day] = per_day.get(day, 0) + n
+    return _stats(per_day, dictations, words, seconds, days)
+
+
+def stats_from_daily(daily: list[dict[str, Any]], days: int = 14) -> dict[str, Any]:
+    """The same, from the daily totals in history.sqlite3 (kept when old dictations are deleted)."""
+    per_day = {d["day"]: d["words"] for d in daily if d["words"]}
+    return _stats(per_day, sum(d["dictations"] for d in daily), sum(d["words"] for d in daily),
+                  sum(d["seconds"] for d in daily), days)
+
+
+def _stats(per_day: dict[str, int], dictations: int, words: int, seconds: float, days: int) -> dict[str, Any]:
     recent = _last_days(7)
     # Days in a row with at least one dictation; nothing yet today doesn't break yesterday's streak.
     day = datetime.date.today()

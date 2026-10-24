@@ -18,6 +18,7 @@ def bare_app(**state):
     a.settings["ai_cleanup"]["enabled"] = False
     a.last_text = ""
     a.wait_for_keys_released = lambda: None
+    a.learner = type("NoLearner", (), {"watch": lambda self, text: None})()
     for k, v in state.items():
         setattr(a, k, v)
     return a
@@ -52,15 +53,18 @@ class FakeHistory:
     def __init__(self):
         self.rows = []
 
-    def add(self, *row):
+    def add(self, *row, **kwargs):
         self.rows.append(row)
+
+    def count_usage(self, *args):
+        pass
 
 
 def test_text_is_still_typed_when_cleanup_breaks(monkeypatch):
     a = bare_app(transcriber=FakeTranscriber(), history=FakeHistory())
     typed = []
     monkeypatch.setattr(app_module, "process_text", lambda *args: 1 / 0)
-    monkeypatch.setattr(app_module.paste, "insert", lambda text, settings, app="": typed.append(text))
+    monkeypatch.setattr(app_module.paste, "insert", lambda text, settings, app="", space_after=True: typed.append(text))
     monkeypatch.setattr(app_module.context, "current", lambda: context.AppContext(process="WINWORD.EXE"))
     a.dictate(None, 2.0, context.AppContext(process="WINWORD.EXE"), 0.0)
     assert typed == ["the patient is stable"]

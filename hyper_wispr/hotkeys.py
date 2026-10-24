@@ -4,6 +4,9 @@
 - Tap them quickly instead: hands-free mode keeps recording after you let go.
   Tap (or hold) them again to finish.
 - Esc while recording: cancel without pasting.
+- Press the command key (default Alt) too, before or while recording: command mode, which
+  rewrites the selected text as you say instead of pasting what you said.
+- The "paste last" keys (default Ctrl+Alt+Z): paste the last dictation again.
 
 Key events arrive on the Windows keyboard-hook thread, which must return within a few
 hundred milliseconds or Windows starts dropping keystrokes. So the state machine only
@@ -55,6 +58,9 @@ class HotkeyStateMachine:
         clock: Callable[[], float] = time.monotonic,
         is_down: Callable[[str], bool | None] = lambda _name: None,
         on_combo: Callable[[], None] = lambda: None,
+        command_key: str | None = None,
+        paste_last: list[str] | None = None,
+        on_paste_last: Callable[[], None] = lambda: None,
     ):
         self.combo = combo
         self.tap_seconds = tap_seconds
@@ -64,6 +70,11 @@ class HotkeyStateMachine:
         self.clock = clock
         # Asks the keyboard whether a key is physically down (None = can't tell); see listen().
         self.is_down = is_down
+        self.command_key = command_key
+        # Set when this recording is a command (the command key was down at some point).
+        self.command = False
+        self.paste_last = paste_last or []
+        self.on_paste_last = on_paste_last
         self.pressed: set[str] = set()
         self.state = IDLE
         self._down_at = 0.0
@@ -73,6 +84,15 @@ class HotkeyStateMachine:
 
     def _in_combo(self, name: str) -> bool:
         return any(key_matches(w, name) for w in self.combo)
+
+    def _is_command_key(self, name: str) -> bool:
+        return bool(self.command_key) and not self._in_combo(name) and key_matches(self.command_key, name)
+
+    def _paste_last_down(self, name: str) -> bool:
+        keys = self.paste_last
+        if not keys or not any(key_matches(w, name) for w in keys):
+            return False
+        return all(any(key_matches(w, p) for p in self.pressed) for w in keys)
 
     def reset(self) -> None:
         """Back to idle without callbacks (e.g. the app refused to start recording)."""
@@ -99,12 +119,20 @@ class HotkeyStateMachine:
             self.state = IDLE
             self.on_cancel()
             return
+        if self._is_command_key(name) and self.state in (HOLDING, HANDS_FREE):
+            self.command = True
+            self.on_combo()  # Alt on its own would select the app's menu bar when let go
+            return
+        if self.state == IDLE and self._paste_last_down(name):
+            self.on_paste_last()
+            return
         if not self._in_combo(name) or not self._combo_down():
             return
         self.on_combo()
         if self.state in (IDLE, STOPPING):  # STOPPING here means a key-up was missed
             self.state = HOLDING
             self._down_at = self.clock()
+            self.command = any(self._is_command_key(p) for p in self.pressed)
             self.on_start()
         elif self.state == HANDS_FREE:
             # Wait for the keys to go up so the release doesn't start a new recording.

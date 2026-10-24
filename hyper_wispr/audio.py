@@ -15,6 +15,7 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 TARGET_RATE = 16000
+PREROLL_SECONDS = 0.4
 
 
 def rms(audio: np.ndarray) -> float:
@@ -46,13 +47,24 @@ class Recorder:
         self._chunks: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._stream = None
+        # Always-on microphone: the stream stays open between dictations, keeping the last moment
+        # of sound so a word spoken as you press the keys isn't lost.
+        self._recording = False
+        self._preroll: list[np.ndarray] = []
+        self._open_device = None
         # The microphone actually in use: the default one when the chosen one is unplugged.
         self.device = self.cfg.get("input_device")
         self.fell_back = False
 
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ARG002
         with self._lock:
-            self._chunks.append(indata[:, 0].copy())
+            if self._recording:
+                self._chunks.append(indata[:, 0].copy())
+                return
+            self._preroll.append(indata[:, 0].copy())
+            keep = int(PREROLL_SECONDS * self._device_rate)
+            while len(self._preroll) > 1 and sum(len(c) for c in self._preroll[1:]) >= keep:
+                self._preroll.pop(0)
 
     def _open(self, device, rate: int):
         return self._sd.InputStream(
@@ -75,9 +87,18 @@ class Recorder:
             raise
         self._stream, self._device_rate, self.device = stream, rate, device
 
-    def start(self) -> None:
-        with self._lock:
-            self._chunks = []
+    @property
+    def keep_open(self) -> bool:
+        return bool(self.cfg.get("keep_mic_open"))
+
+    def _alive(self) -> bool:
+        stream = self._stream
+        try:
+            return stream is not None and bool(stream.active) and self._open_device == self.cfg.get("input_device")
+        except Exception:
+            return False
+
+    def _open_stream(self) -> None:
         wanted = self.cfg.get("input_device")
         self.fell_back = False
         try:
@@ -89,8 +110,37 @@ class Recorder:
             log.warning("Couldn't open the microphone '%s'; using the default one", wanted, exc_info=True)
             self._start(None)
             self.fell_back = True
+        self._open_device = wanted
 
-    def stop(self) -> np.ndarray:
+    def open_standby(self) -> None:
+        """Always-on microphone: open it now (or reopen it after a change), ready for the next dictation."""
+        if not self.keep_open:
+            self.close()
+            return
+        if not self._alive():
+            self.close()
+            with self._lock:
+                self._recording, self._preroll = False, []
+            self._open_stream()
+
+    def start(self) -> None:
+        if self.keep_open and self._alive():
+            with self._lock:
+                self._chunks, self._preroll = self._preroll, []
+                self._recording = True
+            return
+        self.close()
+        with self._lock:
+            self._chunks, self._preroll = [], []
+            self._recording = True
+        try:
+            self._open_stream()
+        except Exception:
+            with self._lock:
+                self._recording = False
+            raise
+
+    def close(self) -> None:
         stream, self._stream = self._stream, None
         if stream is not None:
             # A driver error here must not lose the recording (or leave the app stuck "listening").
@@ -99,8 +149,13 @@ class Recorder:
                     step()
                 except Exception:
                     log.warning("Closing the microphone failed", exc_info=True)
+
+    def stop(self) -> np.ndarray:
+        if not (self.keep_open and self._alive()):
+            self.close()
         with self._lock:
             chunks, self._chunks = self._chunks, []
+            self._recording = False
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
         return resample(audio, self._device_rate)
 

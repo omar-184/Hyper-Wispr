@@ -191,3 +191,52 @@ def clean(text: str, settings: dict[str, Any]) -> str:
     text = apply_replacements(text, settings.get("replacements", {}))
     text = re.sub(r"[ \t]{2,}", " ", text).strip(" \t")
     return capitalize_sentences(text)
+
+
+# ---- fitting into the text that's already there ----------------------------
+
+# Words that are only capitalized because they start a sentence. Anything else (names, drugs,
+# "I") keeps its capital when a dictation continues a sentence.
+_COMMON_STARTS = set(
+    "a an the and but or so then because if when while after before since until although though as of to in on at "
+    "for with without from by about into over under between this that these those it its he she they we you his her "
+    "their our your my there here which who whom whose what where why how is are was were be been has have had do "
+    "does did will would can could should may might must not no also just only even still very more most less some "
+    "any all each every both either neither other another such than too again once please thanks".split()
+)
+_OPENERS = "([{\"'“‘/-"
+
+
+def fit_to_context(text: str, before: str, after: str = "") -> tuple[str, bool]:
+    """Make a dictation continue the text around the cursor. Returns (text, whether a space
+    should follow it). before/after: the text just before and after the cursor ("" = unknown)."""
+    if not text:
+        return text, space_after(after)
+    if before and not before[-1].isspace() and before[-1] not in _OPENERS and text[0] not in _NO_SPACE_BEFORE:
+        text = " " + text  # "the patient" + "is stable" -> "the patient is stable"
+    tail = before.rstrip(" \t")
+    if tail and tail[-1] not in ".!?:\n" and not tail.endswith(("...", "…")):
+        # Mid-sentence: "The" becomes "the", but names, drugs and "I" keep their capital.
+        m = re.match(r"(\s*)([A-Z][a-z']*)\b", text)
+        if m and m.group(2).lower() in _COMMON_STARTS:
+            text = text[: m.start(2)] + m.group(2).lower() + text[m.end(2):]
+    add_space = space_after(after)
+    if after and after[0] in ".,;:!?" and text.endswith("."):
+        text = text[:-1]  # inserting into a sentence: don't end it early
+    return text, add_space
+
+
+def space_after(after: str) -> bool:
+    """Should a space follow the dictation? Not when there's already one (or punctuation) after the cursor."""
+    return not (after and (after[0].isspace() or after[0] in _NO_SPACE_BEFORE))
+
+
+def apply_style(text: str, style: str) -> str:
+    """The parts of a tone the rules can do on their own (the AI step does the rest)."""
+    if style == "very_casual":
+        text = re.sub(r"^(\s*)([A-Z][a-z']*)\b", lambda m: m.group(1) + (m.group(2).lower() if m.group(2).lower() in _COMMON_STARTS else m.group(2)), text)
+        if text.endswith(".") and not text.endswith(".."):
+            text = text[:-1]
+    elif style == "casual" and text.endswith(".") and not re.search(r"[.!?]\s", text):
+        text = text[:-1]  # a one-sentence chat message reads more naturally without the period
+    return text

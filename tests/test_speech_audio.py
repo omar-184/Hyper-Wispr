@@ -128,7 +128,34 @@ def bare_recorder(device):
     rec.cfg = {"input_device": device}
     rec._chunks, rec._lock, rec._stream = [], threading.Lock(), None
     rec.device, rec.fell_back = device, False
+    rec._recording, rec._preroll, rec._open_device, rec._device_rate = False, [], None, audio.TARGET_RATE
     return rec
+
+
+class LiveStream(FakeStream):
+    active = True
+
+    def stop(self):
+        self.active = False
+
+
+def test_always_on_microphone_keeps_the_moment_before_the_keys(monkeypatch):
+    rec = bare_recorder(None)
+    rec.cfg["keep_mic_open"] = True
+    streams = []
+    monkeypatch.setattr(rec, "_open", lambda device, rate: streams.append(LiveStream(device)) or streams[-1])
+    rec.open_standby()
+    block = np.ones((1600, 1), dtype=np.float32)
+    for _ in range(10):  # a second of sound before the keys go down
+        rec._callback(block, 1600, None, None)
+    rec.start()
+    rec._callback(block * 2, 1600, None, None)
+    out = rec.stop()
+    assert len(streams) == 1 and not streams[0].closed  # stays open for the next dictation
+    assert 0.4 * audio.TARGET_RATE <= out.size <= 0.6 * audio.TARGET_RATE  # ~0.4 s before + 0.1 s during
+    rec.cfg["keep_mic_open"] = False
+    rec.open_standby()
+    assert streams[0].closed
 
 
 def test_unplugged_microphone_falls_back_to_the_default(monkeypatch):

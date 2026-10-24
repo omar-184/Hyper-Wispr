@@ -14,9 +14,10 @@ import threading
 import time
 from typing import Any
 
-from . import ai_cleanup, cleanup, config, context, hotkeys, overlay, paste, settings_ui
+from . import ai_cleanup, cleanup, config, context, hotkeys, media, overlay, paste, settings_ui, uia
 from .audio import Recorder, chime, rms
 from .history import History
+from .learn import Learner
 
 log = logging.getLogger("hyper_wispr")
 
@@ -30,15 +31,21 @@ LABELS = {
 }
 
 
-def process_text(raw: str, settings: dict[str, Any], app_type: str) -> str:
-    """Raw transcript -> text to paste. Kept separate from the app so it can be tested."""
+def process_text(raw: str, settings: dict[str, Any], app_type: str, before: str = "", after: str = "") -> str:
+    """Raw transcript -> text to paste. Kept separate from the app so it can be tested.
+    before/after: the text around the cursor, when it could be read ("" otherwise)."""
     snippet = cleanup.match_snippet(raw, settings.get("snippets", {}))
     if snippet is not None:
         return snippet
     text = cleanup.clean(raw, settings)
     if not text:
         return ""
-    return ai_cleanup.refine(text, settings, app_type)
+    text = cleanup.apply_style(text, ai_cleanup.style_for(settings, app_type))
+    text = ai_cleanup.refine(text, settings, app_type, before)
+    return cleanup.fit_to_context(text, before, after)[0]
+
+
+HOUR = 3600
 
 
 class App:
@@ -75,6 +82,8 @@ class App:
         self._worker_started = False
         self.session = 0
         self.last_text = ""
+        self.focus: uia.Focus = uia.Focus()  # the text box when the current recording started
+        self.download: dict[str, Any] | None = None  # speech model download in progress
         self._mic_warned: str | None = None
         self.settings_window: subprocess.Popen | None = None
         self.overlay = overlay.Overlay(
@@ -92,7 +101,24 @@ class App:
             on_stop=lambda: self.actions.put(self.stop_recording),
             on_cancel=lambda: self.actions.put(self.cancel_recording),
             on_combo=self._on_combo,
+            command_key=self._command_key(),
+            paste_last=self.settings.get("paste_last_keys") or [],
+            on_paste_last=lambda: self.actions.put(self.paste_last),
         )
+        self.learner = Learner(self._learned_word, self._known_words)
+
+    def _command_key(self) -> str | None:
+        cfg = self.settings.get("command_mode") or {}
+        return cfg.get("key") if cfg.get("enabled", True) else None
+
+    def _known_words(self) -> set[str]:
+        return set(self.settings.get("dictionary", [])) | set(self.settings.get("dictionary_starred", []))
+
+    def _learned_word(self, word: str, heard: str) -> None:
+        try:
+            self.history.suggest(word, heard)
+        except sqlite3.Error:
+            log.exception("Could not save a learned word")
 
     def _on_combo(self) -> None:
         # Not queued like the others: it has to happen while the keys are still down.
@@ -145,6 +171,12 @@ class App:
         self.session += 1
         chime("start", self.settings["audio"]["sounds"])
         self._settle_status()
+        # While the microphone is already recording: nothing here may delay the first word.
+        self.focus = uia.Focus()
+        if self.settings.get("context_awareness", True) or self.machine.command:
+            self.focus = uia.focus()
+        if self.settings["audio"].get("mute_media", True):
+            media.mute_others()
         # Safety net for a forgotten hands-free recording.
         session = self.session
         limit = self.settings["audio"].get("max_seconds", 360)
@@ -166,21 +198,26 @@ class App:
         seconds = len(audio) / self.recorder.rate
         level = rms(audio)
         log.info("Recorded %.1fs from '%s', level %.4f", seconds, self.recorder.device_name(), level)
+        media.unmute()
         keep = seconds >= self.settings["audio"]["min_seconds"]
-        if keep and level < self.settings["audio"].get("silence_threshold", 0.003):
+        threshold = self.settings["audio"].get("silence_threshold", 0.003)
+        if self.settings["audio"].get("whisper_mode"):
+            threshold /= 4  # speaking under your breath is much quieter
+        if keep and level < threshold:
             keep = False
             self.notify("Didn't hear anything", f"The microphone '{self.recorder.device_name()}' picked up only silence. Check it's the right one and not muted.")
         with self._status_lock:
             self.recording = False
             if keep:
                 self.pending += 1
-                self.jobs.put((audio, seconds, self.target or context.AppContext(), time.time()))
+                self.jobs.put((audio, seconds, self.target or context.AppContext(), time.time(), self.machine.command, self.focus))
         self._settle_status()
 
     def cancel_recording(self) -> None:
         if not self.recording:
             return
         self.recorder.stop()
+        media.unmute()
         chime("error", self.settings["audio"]["sounds"])
         with self._status_lock:
             self.recording = False
@@ -197,9 +234,12 @@ class App:
     # ---- worker ----------------------------------------------------------
     def worker(self) -> None:
         while True:
-            audio, seconds, target, t0 = self.jobs.get()
+            audio, seconds, target, t0, is_command, focus = self.jobs.get()
             try:
-                self.dictate(audio, seconds, target, t0)
+                if is_command:
+                    self.run_command(audio, target, focus)
+                else:
+                    self.dictate(audio, seconds, target, t0, focus)
             except Exception:
                 log.exception("Dictation failed")
                 chime("error", self.settings["audio"]["sounds"])
@@ -209,10 +249,13 @@ class App:
                     self.pending -= 1
                 self._settle_status()
 
-    def dictate(self, audio, seconds: float, target: context.AppContext, t0: float) -> None:
+    def dictate(self, audio, seconds: float, target: context.AppContext, t0: float, focus: uia.Focus | None = None) -> None:
         raw = self.transcriber.transcribe(audio)
+        focus = focus or uia.Focus()
+        use_context = self.settings.get("context_awareness", True) and not focus.password
+        before, after = (focus.before, focus.after) if use_context else ("", "")
         try:
-            final = process_text(raw, self.settings, target.app_type)
+            final = process_text(raw, self.settings, target.app_type, before, after)
         except Exception:
             # The words are still worth having: type them as heard rather than lose them.
             log.exception("Cleaning up the text failed; typing the transcript as heard")
@@ -220,23 +263,84 @@ class App:
         latency = time.time() - t0
         # No dictated text in the log: it can contain patient information.
         log.info("[%s/%s] %.1fs audio, %.2fs latency, %d characters typed", target.process, target.app_type, seconds, latency, len(final))
-        if self.settings["history"]["enabled"]:
-            try:
+        try:
+            if self.settings["history"]["enabled"]:
                 # Before pasting, so the text survives a paste that goes wrong.
-                self.history.add(target.process, target.app_type, seconds, raw, final, latency)
-            except sqlite3.Error:
-                log.exception("Could not save the dictation to history")
+                self.history.add(target.process, target.app_type, seconds, raw, final, latency,
+                                 audio=audio, keep_recordings=int(self.settings["history"].get("keep_recordings", 0) or 0))
+            elif final:
+                self.history.count_usage(seconds, final)  # for the dashboard's totals only
+        except sqlite3.Error:
+            log.exception("Could not save the dictation to history")
         if not final:
             self.notify("No speech recognized", "Nothing was typed. Try speaking a little louder or closer to the microphone.")
             return
         self.last_text = final
         self.wait_for_keys_released()
+        self.put_text(final, cleanup.space_after(after), learn=True)
+
+    def put_text(self, text: str, space_after: bool = True, learn: bool = False) -> None:
+        """Paste at the cursor, unless nothing that takes text has the focus: then the text goes on
+        the clipboard (and stays in History) instead of being lost."""
+        now = context.current()
+        if now.is_shell or uia.focus(before_chars=0, after_chars=0).editable is False:
+            log.info("No text box has the focus (%s); copying instead of pasting", now.process)
+            try:
+                paste.copy(text)
+                self.notify("No text box selected", "Your dictation wasn't pasted anywhere, so it's on the clipboard. Click where it should go and press Ctrl+V.")
+            except Exception:
+                log.exception("Copying the dictation failed")
+                self.notify("No text box selected", "Your dictation wasn't pasted anywhere. It's saved in History.")
+            return
         try:
-            paste.insert(final, self.settings, context.current().process)
+            paste.insert(text, self.settings, now.process, space_after=space_after)
         except Exception:
             log.exception("Typing the text failed")
             chime("error", self.settings["audio"]["sounds"])
             self.notify("Couldn't type the text", "Choose \"Copy last dictation\" in the tray menu, then paste it with Ctrl+V.")
+            return
+        if learn and self.settings.get("learn_corrections", True):
+            self.learner.watch(text)
+
+    def run_command(self, audio, target: context.AppContext, focus: uia.Focus) -> None:
+        """Command mode: the recording is an instruction for the selected text."""
+        instruction = cleanup.clean(self.transcriber.transcribe(audio), self.settings)
+        if not instruction:
+            self.notify("No instruction heard", "Hold the keys, say what to do with the selected text, then let go.")
+            return
+        if not self.settings["ai_cleanup"].get("enabled"):
+            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice.")
+            return
+        self.wait_for_keys_released()
+        selected = focus.selected if not focus.password else ""
+        if not selected.strip():
+            selected = paste.copy_selection(target.process)
+        if not selected.strip():
+            self.notify("Select some text first", "Command mode changes the text you have selected. Select it, then hold the keys plus Alt and say what to do.")
+            return
+        log.info("Command mode: %d characters selected", len(selected))
+        try:
+            result = ai_cleanup.command(instruction, selected, self.settings)
+        except ai_cleanup.CommandError as e:
+            chime("error", self.settings["audio"]["sounds"])
+            self.notify("Command didn't work", str(e))
+            return
+        self.last_text = result
+        # The selection is still there, so pasting replaces it.
+        self.put_text(result, space_after=False)
+
+    def paste_last(self) -> None:
+        text = self.last_text
+        if not text:
+            try:
+                text = self.history.last() or ""
+            except sqlite3.Error:
+                log.exception("Could not read the history")
+        if not text:
+            self.notify("Nothing to paste yet", "Your last dictation will be available here.")
+            return
+        self.wait_for_keys_released()
+        self.put_text(text)
 
     def wait_for_keys_released(self, timeout: float = 3.0) -> None:
         """Pasting while Ctrl/Win are still held would send the wrong shortcut (e.g. Win+Ctrl+V)."""
@@ -250,7 +354,7 @@ class App:
         if self.icon is not None:
             self.icon.title = "Hyper-Wispr: loading speech model (the first start downloads it, which can take a few minutes)"
         try:
-            transcriber = Transcriber(self.settings)
+            transcriber = Transcriber(self.settings, progress=self._download_progress)
         except Exception as e:
             log.exception("Could not load the speech model")
             self.load_error = f"{e}. Check your internet connection for the first download, then restart Hyper-Wispr."
@@ -258,6 +362,7 @@ class App:
             self.notify("Speech model failed to load", self.load_error)
             return
         self.load_error = ""
+        self.download = None
         self.transcriber = transcriber
         if not self._worker_started:
             self._worker_started = True
@@ -278,6 +383,24 @@ class App:
                 log.info("AI cleanup ready with Ollama model %s", self.settings["ai_cleanup"]["model"])
             else:
                 log.warning("Ollama is not running; AI cleanup will be skipped until it is.")
+
+    def _download_progress(self, done: int, total: int) -> None:
+        """Called while a speech model downloads for the first time."""
+        self.download = {"done": done, "total": total}
+        self._settle_status()
+        if self.icon is not None:
+            self.icon.title = "Hyper-Wispr: " + _download_label(self.download)
+
+    def housekeeping(self) -> None:
+        """Every few hours: auto-delete old history."""
+        while True:
+            try:
+                days = float(self.settings["history"].get("keep_days", 0) or 0)
+                if n := self.history.delete_older_than(days):
+                    log.info("Deleted %d dictation(s) older than %g days", n, days)
+            except Exception:
+                log.exception("Deleting old history failed")
+            time.sleep(6 * HOUR)
 
     # ---- tray ------------------------------------------------------------
     def _settle_status(self) -> None:
@@ -308,9 +431,11 @@ class App:
         """status.json tells the window's dashboard what the tray app is doing."""
         info = {
             "status": status,
-            "label": LABELS[status],
+            "label": _download_label(self.download) if status == "loading" and self.download else LABELS[status],
             "model": getattr(self.transcriber, "description", "") or "",
             "error": self.load_error,
+            # First start: {"done": bytes, "total": bytes (0 = unknown)} while the speech model downloads.
+            "download": self.download if status == "loading" else None,
             "pid": os.getpid(),
             "time": time.time(),
         }
@@ -376,6 +501,12 @@ class App:
         self.settings.update(config.load())
         self.recorder.cfg = self.settings["audio"]
         self.machine.combo = self.settings["push_to_talk_keys"]
+        self.machine.command_key = self._command_key()
+        self.machine.paste_last = self.settings.get("paste_last_keys") or []
+        try:
+            self.recorder.open_standby()
+        except Exception:
+            log.exception("Could not keep the microphone open")
         self.machine.tap_seconds = self.settings.get("hands_free_tap_seconds", 0.35)
         self.overlay.enabled = self.settings["overlay"].get("enabled", True)
         self.overlay.position = self.settings["overlay"].get("position", "bottom")
@@ -431,6 +562,14 @@ class App:
             return
         self.notify("Copied", "Your last dictation is on the clipboard. Paste it with Ctrl+V.")
 
+    def toggle_whisper(self, *_: Any) -> None:
+        enabled = not self.settings["audio"].get("whisper_mode")
+        self.settings["audio"]["whisper_mode"] = enabled
+        try:
+            config.update({"audio.whisper_mode": enabled})
+        except Exception:
+            log.exception("Could not save the whisper mode setting")
+
     def toggle_ai(self, *_: Any) -> None:
         enabled = not self.settings["ai_cleanup"]["enabled"]
         self.settings["ai_cleanup"]["enabled"] = enabled  # the menu tick changes right away
@@ -449,6 +588,7 @@ class App:
             pystray.MenuItem("Open Hyper-Wispr", self.open_settings, default=True),
             pystray.MenuItem("Copy last dictation", self.copy_last),
             pystray.MenuItem("AI cleanup", self.toggle_ai, checked=lambda _: self.settings["ai_cleanup"]["enabled"]),
+            pystray.MenuItem("Whisper mode", self.toggle_whisper, checked=lambda _: bool(self.settings["audio"].get("whisper_mode"))),
             pystray.MenuItem("Open log folder", lambda *_: _open(config.app_dir())),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit Hyper-Wispr", lambda icon, _: icon.stop()),
@@ -463,6 +603,12 @@ class App:
             self.notify("Settings were reset", self.settings_problem)
         threading.Thread(target=self.controller, daemon=True).start()
         threading.Thread(target=self.watch_settings, daemon=True).start()
+        threading.Thread(target=self.housekeeping, daemon=True).start()
+        media.recover()  # music a crash left muted
+        try:
+            self.recorder.open_standby()
+        except Exception:
+            log.exception("Could not keep the microphone open")
         self._publish_status(self.status)
         if self.open_window:
             self.open_settings()
@@ -470,6 +616,13 @@ class App:
         hotkeys.listen(self.machine)
         with self._model_lock:  # a speech-settings change during the first load waits for it
             self.load_models()
+
+
+def _download_label(download: dict[str, Any]) -> str:
+    done, total = download.get("done", 0), download.get("total", 0)
+    if total:
+        return f"Downloading the speech model: {min(99, done * 100 // total)}% of {total / 1e9:.1f} GB"
+    return f"Downloading the speech model: {done / 1e6:.0f} MB so far"
 
 
 def _open_history() -> History:
