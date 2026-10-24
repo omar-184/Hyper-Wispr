@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from . import __version__, config, context
@@ -21,11 +22,14 @@ def main() -> None:
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args()
 
+    has_console = sys.stdout is not None  # None when started without a console (pythonw, the installed app)
+    give_streams_somewhere_to_go()
+
     log_path = config.app_dir() / "hyper-wispr.log"
     if not (args.settings or args.settings_self_test):
         trim_log(log_path)
     handlers: list[logging.Handler] = [logging.FileHandler(log_path, encoding="utf-8")]
-    if sys.stdout is not None:  # None when started without a console (pythonw)
+    if has_console:
         handlers.append(logging.StreamHandler(sys.stdout))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=handlers)
 
@@ -60,6 +64,18 @@ def main() -> None:
     from .app import App
 
     App(open_window=not args.minimized).run()
+
+
+def give_streams_somewhere_to_go() -> None:
+    """The installed app has no console, so sys.stdout and sys.stderr are None and anything that
+    prints crashes with "'NoneType' object has no attribute 'write'". The first speech model
+    download did exactly that (its progress bar writes to stderr), so new installs never got a
+    model. Send such writes nowhere, and turn the download progress bars off: the app shows its own."""
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 
 LOG_LIMIT = 5_000_000  # bytes
