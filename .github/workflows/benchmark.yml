@@ -23,15 +23,18 @@ jobs:
       - name: The compiled AI engine, if cached
         # llama-cpp-python is source-only on PyPI. Compiled once per version and kept in the cache.
         # Not for the build machine's processor: for any with AVX2 (Intel 2013+, AMD 2015+), which
-        # local_llm checks before using it. OpenMP off, so no extra Microsoft DLL is needed.
+        # local_llm checks before using it. OpenMP off, so no extra Microsoft DLL is needed. Built with
+        # clang-cl: llama.cpp's processor code is faster with it than with Microsoft's compiler.
         uses: actions/cache@v4
         with:
           path: wheels
-          key: llama-cpp-python-0.3.36-avx2-py3.12-v1
+          key: llama-cpp-python-0.3.36-avx2-clang-py3.12-v2
+      - uses: ilammy/msvc-dev-cmd@v1
       - name: Compile the AI engine if it isn't cached
         shell: bash
         env:
-          CMAKE_ARGS: "-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DLLAVA_BUILD=OFF"
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DLLAVA_BUILD=OFF"
         run: |
           ls wheels/llama_cpp_python-*.whl 2>/dev/null || pip wheel --no-deps -w wheels "llama-cpp-python==0.3.36"
 
