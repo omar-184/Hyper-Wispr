@@ -34,7 +34,7 @@ if errorlevel 1 (
     where ollama >nul 2>nul
     if not errorlevel 1 ollama pull qwen2.5:3b
 ) else (
-    echo Downloading the AI cleanup model (one time, about 2 GB^)...
+    echo Downloading the AI cleanup model (one time, about 1 GB^)...
     .venv\Scripts\python.exe -c "from hyper_wispr import config, local_llm; s = config.load()['ai_cleanup']; print('AI model ready:', local_llm.download(s.get('builtin_model') or local_llm.DEFAULT_MODEL))"
 )
 

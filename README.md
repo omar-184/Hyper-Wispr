@@ -25,7 +25,7 @@ but is written from scratch and uses open-source models:
    only so versions up to 0.4.0 can update themselves.)
 2. Run it. No administrator password is needed. If Windows says "Windows protected your PC", click
    **More info → Run anyway** (the installer isn't code-signed).
-3. Nothing else to install: the AI cleanup model downloads once on first start (about 2 GB) while
+3. Nothing else to install: the AI cleanup model downloads once on first start (about 1 GB) while
    dictation already works with the basic cleanup. (Processors older than about 2013 can't run the
    built-in engine; they use [Ollama](https://ollama.com/download) if it's installed.)
 4. The Hyper-Wispr window opens on its dashboard, and a round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
@@ -89,7 +89,7 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
   "dictionary": ["apixaban", "empagliflozin", "laparoscopic cholecystectomy"],
   "replacements": { "hyper whisper": "Hyper-Wispr" },
   "snippets": { "my signature": "Dr. Jane Doe\nDepartment of Medicine" },
-  "ai_cleanup": { "enabled": true, "engine": "builtin", "builtin_model": "qwen2.5-3b" }
+  "ai_cleanup": { "enabled": true, "engine": "builtin", "builtin_model": "qwen2.5-1.5b" }
 }
 ```
 
@@ -103,7 +103,7 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
   with several, Hyper-Wispr picks the most likely of them each time. Guessing from all languages is unreliable
   for short dictations, so keep this list short. `speech.language` forces a single language.
 - **ai_cleanup.engine**: `builtin` (default) runs the model inside Hyper-Wispr; `ollama` uses the Ollama app.
-- **ai_cleanup.builtin_model**: `qwen2.5-1.5b` (fast), `qwen2.5-3b` (better), or the path to any chat model `.gguf` file.
+- **ai_cleanup.builtin_model**: `qwen2.5-1.5b` (fast, the default), `qwen2.5-3b` (better on everyday writing, about twice as slow), or the path to any chat model `.gguf` file.
 - **ai_cleanup.model**: the Ollama model, when the engine is `ollama`. `qwen2.5:3b` is fast; `qwen2.5:7b` or `llama3.1:8b` are better if you have a good GPU.
 - **push_to_talk_keys**: key names like `ctrl_l`, `ctrl_r`, `cmd` (the Windows key), `alt_l`, `shift_r`, `f8`.
 

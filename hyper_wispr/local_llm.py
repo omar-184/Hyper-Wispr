@@ -42,7 +42,11 @@ MODELS: dict[str, dict[str, Any]] = {
         "file": "qwen2.5-3b-instruct-q4_k_m.gguf",
     },
 }
-DEFAULT_MODEL = "qwen2.5-3b"
+# Measured on the 4-thread benchmark machine with medical dictation (2026-10-25): a 110-word note took
+# 12 s with the 1.5B model and 26 s with the 3B one (30 s in Ollama), and the 3B model's answer to it
+# left out a sentence in 3 of 4 runs, so the medical check pasted the basic cleanup instead. The 1.5B
+# model passed every medical check.
+DEFAULT_MODEL = "qwen2.5-1.5b"
 N_CTX = 4096
 IDLE_UNLOAD = 30 * 60  # the helper lets the model go after this long without a dictation, like Ollama
 
