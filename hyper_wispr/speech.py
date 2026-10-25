@@ -223,6 +223,9 @@ def _folder_size(folder: Path) -> int:
 
 
 class Transcriber:
+    device = "cpu"
+    gpu_failed = False  # the card failed mid-session and the processor took over
+
     def __init__(self, settings: dict[str, Any], model_override: str | None = None, progress=None, fetch_gpu: bool = False):
         """fetch_gpu: allowed to download the NVIDIA files (only the tray app does, so two
         processes never download them at once)."""
@@ -232,6 +235,7 @@ class Transcriber:
 
         self.settings = settings
         speech_cfg = dict(settings["speech"], model=model_override) if model_override else settings["speech"]
+        self._speech_cfg, self._progress = speech_cfg, progress
         # First start on a PC with a capable NVIDIA card: fetch the CUDA libraries before choosing the device.
         if fetch_gpu:
             gpu_pack.ensure(speech_cfg, progress)
@@ -243,8 +247,10 @@ class Transcriber:
             log.info("Loading Whisper model %s on %s (%s)", model, device, compute)
             try:
                 self.model = WhisperModel(model_path, device=device, compute_type=compute)
-                # Missing GPU libraries only fail on first use, so run once now.
-                list(self.model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)[0])
+                # Missing GPU libraries only fail on first use, so run once now, with the dictation's
+                # beam size: a card with too little memory for it fails here, not on the first dictation.
+                beam = int(speech_cfg.get("beam_size", 5) or 5) if device == "cuda" else 1
+                list(self.model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=beam)[0])
                 break
             except Exception as e:
                 self.model = None
@@ -253,12 +259,21 @@ class Transcriber:
             if device != "cuda":
                 raise RuntimeError(f"Could not load speech model {model}")
             log.warning("GPU unavailable; falling back to CPU")
-            model, device, computes = resolve({**speech_cfg, "device": "cpu", "compute_type": "auto"})
-            compute = computes[0]
-            self.model = WhisperModel(download(model, progress), device=device, compute_type=compute)
+            model, device, compute = self._load_on_cpu()
+        self._finish(model, device, compute)
+
+    def _load_on_cpu(self) -> tuple[str, str, str]:
+        from faster_whisper import WhisperModel
+
+        model, device, computes = resolve({**self._speech_cfg, "device": "cpu", "compute_type": "auto"})
+        self.model = WhisperModel(download(model, self._progress), device=device, compute_type=computes[0])
+        return model, device, computes[0]
+
+    def _finish(self, model: str, device: str, compute: str) -> None:
+        self.device = device
         self.description = f"{model} on {device.upper()} ({compute})"
         # Settings that need a new model when they change; the others are read on every dictation.
-        self.load_settings = {k: speech_cfg.get(k) for k in RELOAD_KEYS}
+        self.load_settings = {k: self._speech_cfg.get(k) for k in RELOAD_KEYS}
         self.multilingual = bool(getattr(self.model.model, "is_multilingual", True))
 
     def _count_tokens(self, text: str) -> int:
@@ -269,6 +284,20 @@ class Transcriber:
             return len(text) // 3 + 1
 
     def transcribe(self, audio: np.ndarray | str) -> str:
+        try:
+            return self._transcribe(audio)
+        except Exception:
+            if self.device != "cuda":
+                raise
+            # The card failed mid-session (out of memory, a driver reset): carry on with the processor
+            # rather than fail every dictation from now on.
+            log.exception("The GPU failed; switching to the processor")
+            self.model = None
+            self._finish(*self._load_on_cpu())
+            self.gpu_failed = True
+            return self._transcribe(audio)
+
+    def _transcribe(self, audio: np.ndarray | str) -> str:
         cfg = self.settings["speech"]
         whisper_mode = bool(self.settings.get("audio", {}).get("whisper_mode"))
         if not isinstance(audio, str):

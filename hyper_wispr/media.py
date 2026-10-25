@@ -41,9 +41,7 @@ def _sessions():
 
 
 def _mute_job() -> list[int]:
-    import comtypes
-
-    comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+    uia.init_com()  # runs on the UI Automation thread
     done = []
     for session in _sessions():
         proc = session.Process
@@ -59,9 +57,7 @@ def _mute_job() -> list[int]:
 
 
 def _unmute_job(pids: set[int]) -> None:
-    import comtypes
-
-    comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+    uia.init_com()  # runs on the UI Automation thread
     for session in _sessions():
         if session.ProcessId in pids:
             session.SimpleAudioVolume.SetMute(0, None)

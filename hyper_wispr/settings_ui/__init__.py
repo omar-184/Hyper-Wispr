@@ -100,11 +100,21 @@ class Api:
 
     # ---- hardware --------------------------------------------------------
     def gpu_available(self) -> bool:
+        return self.gpu_status()["usable"]
+
+    def gpu_status(self) -> dict[str, Any]:
+        """For the Speech page: can the NVIDIA card speed up the speech model, and if not, why.
+        {"usable", "card" (its name, or "" without one), "reason" (why not, in plain words)}."""
         from .. import gpu_pack
         from ..speech import usable_gpu
 
         # Asking the driver works before the NVIDIA files are downloaded; the tray app fetches them.
-        return gpu_pack.usable_card() is not None or (gpu_pack.libraries_ready() and usable_gpu())
+        cards = gpu_pack.nvidia_cards()
+        card = gpu_pack.usable_card(cards)
+        if card is not None or (gpu_pack.libraries_ready() and usable_gpu()):
+            return {"usable": True, "card": card["name"] if card else "", "reason": ""}
+        name = cards[0]["name"] if cards else ""
+        return {"usable": False, "card": name, "reason": gpu_pack.why_not(cards[0]) if cards else ""}
 
     def list_microphones(self) -> dict[str, Any]:
         """Input devices of the default sound system (MME on Windows), named so sounddevice
@@ -622,6 +632,36 @@ def focus_window(wait: float = 0.0) -> bool:
     return True
 
 
+WINDOW_SIZE = (1240, 820)
+
+
+def fit_window(width: int, height: int, room_w: float, room_h: float) -> tuple[int, int]:
+    """The window's size, smaller where the screen has less room (all in display-scaled pixels):
+    a 1080p laptop at 150% has about 1280 x 680, and a taller window opened with its title bar
+    above the top of the screen, where it can't be grabbed."""
+    margin = 16
+    return int(min(width, room_w - margin)), int(min(height, room_h - margin))
+
+
+def _work_area() -> tuple[float, float] | None:
+    """The main screen's size without the taskbar, in display-scaled pixels as pywebview sizes windows."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        rect = wintypes.RECT()
+        if not user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0):  # SPI_GETWORKAREA
+            return None
+        # Both are scaled, or neither, depending on whether this process is DPI aware yet.
+        scale = (user32.GetDpiForSystem() or 96) / 96
+        return (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale
+    except Exception:
+        return None
+
+
 def _windows_dark_mode() -> bool:
     if sys.platform != "win32":
         return False
@@ -654,13 +694,15 @@ def run(self_test: bool = False) -> int:
     import webview
 
     api = Api()
+    room = _work_area()
+    width, height = fit_window(*WINDOW_SIZE, *room) if room else WINDOW_SIZE
     window = webview.create_window(
         WINDOW_TITLE,
         url=(WEB_DIR / "index.html").as_uri(),
         js_api=api,
-        width=1240,
-        height=820,
-        min_size=(760, 560),
+        width=width,
+        height=height,
+        min_size=(min(760, width), min(560, height)),
         # Matches the page background so the window doesn't flash white in dark mode.
         background_color="#1c1c1e" if _windows_dark_mode() else "#f5f5f7",
     )

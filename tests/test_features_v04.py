@@ -10,7 +10,7 @@ from hyper_wispr import app as app_module
 from hyper_wispr.__main__ import trim_log
 from hyper_wispr.app import process_text
 from hyper_wispr.history import History
-from hyper_wispr.hotkeys import HotkeyStateMachine
+from hyper_wispr.hotkeys import HANDS_FREE, HotkeyStateMachine
 
 
 def settings(**over):
@@ -80,7 +80,7 @@ def test_starred_words_come_first_without_repeats():
 def test_command_rewrites_selection(monkeypatch):
     seen = {}
 
-    def post(url, payload, timeout):
+    def post(url, payload, timeout, *a):
         seen["user"] = payload["messages"][1]["content"]
         return {"message": {"content": "```\nPatient stable. Discharge tomorrow.\n```"}}
 
@@ -129,6 +129,29 @@ def test_command_key_before_or_during_recording():
     assert not m.command  # a new, plain dictation
     m.key_down("alt_l")
     assert m.command
+
+
+def test_alt_in_hands_free_mode_keeps_it_a_dictation():
+    """Alt+Tab to another window while dictating hands-free mustn't turn the words into a command
+    (they were lost, or rewrote whatever was selected there)."""
+    ev = []
+    t = [0.0]
+    m = HotkeyStateMachine(["ctrl_l", "cmd"], 0.35, on_start=lambda: ev.append("start"),
+                           on_stop=lambda: ev.append("stop"), on_cancel=lambda: ev.append("cancel"),
+                           command_key="alt_l", clock=lambda: t[0])
+    m.key_down("ctrl_l")
+    m.key_down("cmd")
+    m.key_up("cmd")
+    m.key_up("ctrl_l")  # a quick tap: hands-free
+    assert m.state == HANDS_FREE
+    t[0] = 5.0
+    m.key_down("alt_l")
+    m.key_down("tab")
+    m.key_up("tab")
+    m.key_up("alt_l")
+    m.key_down("ctrl_l")
+    m.key_down("cmd")
+    assert ev == ["start", "stop"] and not m.command
 
 
 def test_paste_last_shortcut():
@@ -236,3 +259,33 @@ def test_dictation_with_no_text_box_goes_to_the_clipboard(monkeypatch):
     a.dictate(None, 2.0, context.AppContext(), 0.0)
     assert pasted == [] and copied == ["The patient is stable"]
     assert a.notices == ["No text box selected"]
+
+
+def test_deleting_a_dictation_wipes_its_text_from_the_file(tmp_path):
+    """Without rewriting the whole file each time (0.4 s per delete with a month of history)."""
+    path = tmp_path / "h.sqlite3"
+    h = History(path)
+    keep = h.add("WINWORD.EXE", "document", 2.0, "raw", "Keep this one.", 0.5)
+    gone = h.add("WINWORD.EXE", "document", 2.0, "Bed 7 Zylpharon", "Bed 7 Zylpharon started.", 0.5)
+    h.delete(gone)
+    h.close()
+    assert b"Zylpharon" not in path.read_bytes()  # on Windows it's encrypted too
+    h = History(path)
+    assert [i["id"] for i in h.recent()] == [keep]
+
+
+def test_search_decrypts_each_dictation_once(tmp_path, monkeypatch):
+    from hyper_wispr import history as history_module
+
+    h = History(tmp_path / "h.sqlite3")
+    for i in range(20):
+        h.add("WINWORD.EXE", "document", 2.0, "raw", f"Dictation {i} about apixaban.", 0.5)
+    calls = []
+    decrypt = history_module.secure.decrypt_text
+    monkeypatch.setattr(history_module.secure, "decrypt_text", lambda v: calls.append(1) or decrypt(v))
+    assert len(h.recent(search="apixaban")) == 20
+    first = len(calls)
+    assert len(h.recent(search="dictation 17")) == 1 and len(calls) == first
+    newest = h.recent(1)[0]["id"]
+    h.update_text(newest, "Now about heparin.")
+    assert [i["id"] for i in h.recent(search="heparin")] == [newest]

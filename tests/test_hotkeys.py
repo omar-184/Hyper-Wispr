@@ -173,3 +173,35 @@ def test_which_shortcuts_need_the_menu_mask():
     assert uses_menu_key(["alt_gr", "space"])
     assert not uses_menu_key(["ctrl_l", "shift"])
     assert not uses_menu_key(["f8"])
+
+
+def test_letter_keys_are_named_by_the_key_whatever_windows_reports():
+    """Measured on Windows: Ctrl+Alt+Z arrived as "vk90" and Ctrl+Z as "\\x1a", so the paste-last
+    (Ctrl+Alt+Z) and medical (Ctrl+Alt+M) shortcuts never fired."""
+    from types import SimpleNamespace as Key
+
+    from hyper_wispr.hotkeys import _name
+
+    assert _name(Key(name=None, char=None, vk=90, _scan=0x2C)) == "z"  # Ctrl+Alt+Z
+    assert _name(Key(name=None, char="\x1a", vk=90, _scan=0x2C)) == "z"  # Ctrl+Z
+    assert _name(Key(name=None, char="ئ", vk=90, _scan=0x2C)) == "z"  # the same key, Arabic layout
+    assert _name(Key(name=None, char=None, vk=77)) == "m"  # no scan code: by the virtual key
+    assert _name(Key(name=None, char=None, vk=0x35, _scan=0x06)) == "5"
+    assert _name(Key(name=None, char=";", vk=186, _scan=0x27)) == ";"
+    assert _name(Key(name=None, char=None, vk=186, _scan=0x27)) == "vk186"
+    assert _name(Key(name="ctrl_l", char=None, vk=162)) == "ctrl_l"
+
+
+def test_paste_last_and_medical_shortcuts_fire_with_the_names_windows_gives():
+    from types import SimpleNamespace as Key
+
+    from hyper_wispr.hotkeys import _name
+
+    events = []
+    m = HotkeyStateMachine(["ctrl_l", "cmd"], 0.35, lambda: None, lambda: None, lambda: None,
+                           paste_last=["ctrl", "alt", "z"], on_paste_last=lambda: events.append("paste_last"),
+                           medical_keys=["ctrl", "alt", "m"], on_medical=lambda: events.append("medical"))
+    for scan, vk in ((0x2C, 90), (0x32, 77)):
+        press(m, "ctrl_l", "alt_l", _name(Key(name=None, char=None, vk=vk, _scan=scan)))
+        release(m, "ctrl_l", "alt_l", _name(Key(name=None, char=None, vk=vk, _scan=scan)))
+    assert events == ["paste_last", "medical"]

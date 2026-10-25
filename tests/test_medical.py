@@ -70,13 +70,56 @@ def test_own_word_lists_from_the_folder(no_user_lists):
     ("on apixiban for atrial fibrilation", "on apixaban for atrial fibrillation"),
     ("cef triaxone 2 g daily", "ceftriaxone 2 g daily"),
     ("started dexmedetomadine", "started dexmedetomidine"),
+    ("on nor epinephrine and es omeprazole", "on norepinephrine and esomeprazole"),
 ])
 def test_near_misses_are_corrected(heard, written):
     assert medical.fix(heard, settings(format_units=False)) == written
 
 
+@pytest.mark.parametrize("text", [
+    "Metoprolol no longer needed.", "Levetiracetam no change.", "Enoxaparin no longer.", "Dopram in the morning.",
+    "Norepinephrine at 0.08 mcg/kg/min.", "Increase acetylcysteine to 600 mg.", "Vancomycin or linezolid.",
+    "Start enalapril at 5 mg daily.", "Mass in the left adrenal in 2024.",
+])
+def test_a_short_word_next_to_a_drug_name_is_kept(text):
+    """They were joined as if the speech model had split one term: "no" vanished after 3 in 10 terms."""
+    assert medical.fix(text, settings()) == text
+
+
 def test_specialty_words_are_corrected_when_the_specialty_is_on():
     assert medical.fix("plan for craniotamy", settings(specialties=["neuro"])) == "plan for craniotomy"
+
+
+@pytest.mark.parametrize("heard, written", [
+    ("pancroatitis", "pancreatitis"), ("menengitis", "meningitis"), ("pruritis", "pruritus"),
+    ("gallbladdar", "gallbladder"), ("tachycardoa", "tachycardia"), ("cholelithiosis", "cholelithiasis"),
+])
+def test_vowel_slips_in_word_parts_are_still_corrected(heard, written):
+    assert medical.fix(f"seen for {heard} today", settings()) == f"seen for {written} today"
+
+
+# Correct words the dictionary doesn't have, each one slip away from a term that means something else.
+@pytest.mark.parametrize("word", [
+    "hypermagnesemia", "hypervolemic", "hyporeflexia", "extraperitoneal", "extramedullary", "perioperative",
+    "metrorrhagia", "endometritis", "arteritis", "thrombolysis", "epididymitis", "epiglottitis", "myopathy",
+    "arthropathy", "thyroxine", "echocardiography", "hyperglycemic", "coagulopathic", "neutropenic", "oliguric",
+    "scleral", "nebulized", "hypertonia", "dyskinesia",
+])
+def test_correct_medical_words_are_never_changed_into_another_word(word):
+    s = settings(specialties=list(medical.SPECIALTIES))
+    for text in (f"{word.capitalize()} was noted.", f"we noted {word} today"):
+        assert medical.fix(text, s) == text
+
+
+def test_a_slip_between_two_terms_with_different_meanings_is_left_alone():
+    s = settings(specialties=["neuro"])
+    for heard in ("hypetension", "hyportension", "laminoctomy"):
+        assert medical.fix(f"has {heard} now", s) == f"has {heard} now"
+
+
+def test_names_and_british_spellings_are_left_alone():
+    for text in ("Qassim called back.", "we drove to qassim", "Haemoglobin and oedema noted, paediatrics review."):
+        assert medical.fix(text, settings()) == text
 
 
 def test_ordinary_text_is_left_alone():
@@ -117,6 +160,15 @@ def test_switches_for_each_fix():
     ("sats 95 percent", "sats 95%"),
     ("temperature 38.5 degrees Celsius", "temperature 38.5°C"),
     ("give 1 gram", "give 1 g"),
+    ("give .5 milligrams IV", "give 0.5 mg IV"),
+    ("albumin 3.5 grams per deciliter", "albumin 3.5 g/dL"),
+    ("75 milligrams per square meter", "75 mg/m²"),
+    ("12.5 milligrams and 1,000 milligrams", "12.5 mg and 1,000 mg"),
+    # A dose run into its unit is on ISMP's error-prone list: 10mg is read as 100 mg.
+    ("ceftriaxone 2g daily", "ceftriaxone 2 g daily"),
+    ("metoprolol 25mg and 1,000mg", "metoprolol 25 mg and 1,000 mg"),
+    ("5mg/kg/min, 100ml/h, 20meq, 120mmHg", "5 mg/kg/min, 100 mL/h, 20 mEq, 120 mmHg"),
+    ("give .5mg", "give 0.5 mg"),
 ])
 def test_units_are_written_the_standard_way(heard, written):
     assert medical.format_units(heard) == written
@@ -124,9 +176,16 @@ def test_units_are_written_the_standard_way(heard, written):
 
 @pytest.mark.parametrize("text", [
     "for 2 hours", "every 4 hours", "wait 10 minutes", "a few milligrams", "100 over 50 years", "grams of protein",
+    "4G network", "G2P1", "vitamin B12", "q4h", "COVID-19", "3D scan", "2nd dose", "x2",
 ])
 def test_durations_and_ordinary_phrases_keep_their_words(text):
     assert medical.format_units(text) == text
+
+
+def test_the_medical_words_the_ai_must_keep():
+    text = "Hold heparin tonight. No hepatosplenomegaly. Blood pressure is fine, see the Qassim note."
+    assert medical.key_terms(text, settings()) == ["heparin", "hepatosplenomegaly"]
+    assert medical.key_terms(text, settings(custom_terms=["Qassim"])) == ["heparin", "hepatosplenomegaly", "qassim"]
 
 
 def test_dotted_abbreviations():

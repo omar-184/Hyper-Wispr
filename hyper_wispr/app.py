@@ -183,6 +183,7 @@ class App:
             self.focus = uia.focus()
         if self.settings["audio"].get("mute_media", True):
             media.mute_others()
+        ai_cleanup.prewarm(self.settings, self.target.app_type)
         # Safety net for a forgotten hands-free recording.
         session = self.session
         limit = self.settings["audio"].get("max_seconds", 360)
@@ -246,6 +247,10 @@ class App:
                     self.run_command(audio, target, focus)
                 else:
                     self.dictate(audio, seconds, target, t0, focus)
+                if getattr(self.transcriber, "gpu_failed", False) and not getattr(self, "_gpu_warned", False):
+                    self._gpu_warned = True
+                    self.notify("Using the processor", "The graphics card stopped working for dictation, so the processor "
+                                "took over (a little slower). Quit and reopen Hyper-Wispr to try the card again.")
             except Exception:
                 log.exception("Dictation failed")
                 chime("error", self.settings["audio"]["sounds"])
@@ -314,15 +319,20 @@ class App:
         if not instruction:
             self.notify("No instruction heard", "Hold the keys, say what to do with the selected text, then let go.")
             return
+        # If the command can't run, what was said isn't lost: "paste last" types it.
+        again = " + ".join(hotkeys.display_name(k) for k in self.settings.get("paste_last_keys") or [])
+        again = f" To type what you said instead, press {again}." if again else ""
         if not self.settings["ai_cleanup"].get("enabled"):
-            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice.")
+            self.last_text = instruction
+            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice." + again)
             return
         self.wait_for_keys_released()
         selected = focus.selected if not focus.password else ""
         if not selected.strip():
             selected = paste.copy_selection(target.process)
         if not selected.strip():
-            self.notify("Select some text first", "Command mode changes the text you have selected. Select it, then hold the keys plus Alt and say what to do.")
+            self.last_text = instruction
+            self.notify("Select some text first", "Command mode changes the text you have selected. Select it, then hold the keys plus Alt and say what to do." + again)
             return
         log.info("Command mode: %d characters selected", len(selected))
         try:

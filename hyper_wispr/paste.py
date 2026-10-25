@@ -40,13 +40,22 @@ def _kb():
     return _keyboard
 
 
+def _letter_key(letter: str):
+    """The key with this letter on a US keyboard. Shortcuts go by key, not by letter: with an Arabic
+    (or any non-Latin) keyboard layout there's no "v" to type, and pynput would send the character
+    on its own, which no app takes as Ctrl+V."""
+    from pynput.keyboard import KeyCode
+
+    return KeyCode.from_vk(ord(letter.upper())) if sys.platform == "win32" else letter
+
+
 def _paste_shortcut() -> None:
     from pynput.keyboard import Key
 
     kb = _kb()
     mod = Key.cmd if sys.platform == "darwin" else Key.ctrl
     with kb.pressed(mod):
-        kb.tap("v")
+        kb.tap(_letter_key("v"))
 
 
 def insert(text: str, settings: dict[str, Any], app: str = "", space_after: bool = True) -> None:
@@ -97,7 +106,7 @@ def copy_selection(app: str = "") -> str:
         before = clipboard.sequence()
         kb = _kb()
         with kb.pressed(Key.ctrl):
-            kb.tap("c")
+            kb.tap(_letter_key("c"))
         deadline = time.time() + 0.6
         while clipboard.sequence() == before and time.time() < deadline:
             time.sleep(0.02)

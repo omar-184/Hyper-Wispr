@@ -406,7 +406,7 @@ function shortcutRow(path = "push_to_talk_keys", label = "Push-to-talk shortcut"
 }
 
 function handsFreeText() {
-  return "Hold to talk and let go to paste. Tap it quickly instead to dictate hands-free, and tap again to finish. Esc cancels.";
+  return "Hold to talk, let go to paste. Tap for hands-free, tap again to finish. Esc cancels.";
 }
 
 /* ---- microphone ---------------------------------------------------------- */
@@ -423,7 +423,7 @@ function micRows() {
   const current = get("audio.input_device");
   const options = [{ value: "", label: "Windows default" }].concat(mics.map((m) => ({ value: m.id, label: m.name + (m.is_default ? " (default)" : "") })));
   if (current && !mics.some((m) => m.id === current)) options.push({ value: current, label: String(current).split(",")[0] + " (not connected)" });
-  rows.push(row("Microphone", S.mics && !S.mics.ok ? "Couldn't list microphones: " + S.mics.error : "Which microphone to listen to.",
+  rows.push(row("Microphone", S.mics && !S.mics.ok ? "Couldn't list microphones: " + S.mics.error : null,
     select("audio.input_device", options, { toValue: (v) => v || null, onChange: () => { if (micTest) startMicTest(); } })));
 
   const hasGate = has("audio.silence_threshold");
@@ -487,7 +487,7 @@ function micRows() {
     });
     rows.push(h("div", { class: "row stack" },
       h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Silence cutoff"),
-        h("div", { class: "row-desc" }, "Recordings that never get louder than the line on the meter are ignored, so background noise isn't typed. Move it left if a quiet voice gets missed.")),
+        h("div", { class: "row-desc" }, "Recordings quieter than the line on the meter are ignored. Move it left if a quiet voice is missed.")),
       h("div", { class: "meter-row" }, h("span", { class: "row-desc" }, "More sensitive"), slider, h("span", { class: "row-desc" }, "Less sensitive"))));
   }
   return rows;
@@ -507,10 +507,10 @@ const PAGES = [
 ];
 
 function pageHeader(title, lede) {
-  return [h("h1", {}, title), lede && h("p", { class: "lede" }, lede)];
+  return [h("h1", { class: lede ? null : "solo" }, title), lede && h("p", { class: "lede" }, lede)];
 }
 
-/* Two columns side by side when the window is wide enough, one under the other when it isn't. */
+/* The sections of a settings page, one under the other across the whole window. */
 function cols(left, right) {
   return h("div", { class: "cols" }, h("div", { class: "col" }, left), h("div", { class: "col" }, right));
 }
@@ -630,10 +630,10 @@ function homePage() {
         dashCard("Recent dictations", h("button", { class: "link with-icon", type: "button", onclick: () => go("history") }, "See all", icon("arrow")), recent)),
       h("div", { class: "dash-side" },
         dashCard("Quick settings", null, h("div", { class: "dash-rows" },
-          row("AI cleanup", "Punctuation, \"um\"s and corrections fixed by a local AI.", toggle("ai_cleanup.enabled")),
-          row("Medical dictation", ["Medical spelling, doses and units. ", keysView(get("medical.toggle_keys") || []), " turns it on or off."], toggle("medical.enabled")),
-          row("Sounds", "A soft tone when listening starts and stops.", toggle("audio.sounds")),
-          row("On-screen indicator", "The \"Listening\" bubble while you dictate.", toggle("overlay.enabled")))),
+          row("AI cleanup", "Punctuation and corrections, by a local AI.", toggle("ai_cleanup.enabled")),
+          row("Medical dictation", [keysView(get("medical.toggle_keys") || []), " turns it on or off."], toggle("medical.enabled")),
+          row("Sounds", null, toggle("audio.sounds")),
+          row("On-screen indicator", null, toggle("overlay.enabled")))),
         dashCard("Your setup", h("button", { class: "link with-icon", type: "button", onclick: () => go("general") }, "Settings", icon("arrow")), h("div", { class: "dash-rows" },
           setupRow("Microphone", micName(), "general"),
           setupRow("Languages", languageSummary().replace(/\.$/, ""), "speech"),
@@ -670,15 +670,15 @@ function commandRows() {
   const keys = get("push_to_talk_keys") || [];
   const on = get("command_mode.enabled") !== false;
   return [
-    row("Command mode", ["Select some text, then hold ", keysView([...keys, get("command_mode.key") || "alt_l"]), " and say what to do, like \"make this shorter\" or \"turn this into a referral letter\". Needs AI cleanup."],
+    row("Command mode", ["Select text, hold ", keysView([...keys, get("command_mode.key") || "alt_l"]), " and say what to do, like \"make this shorter\". Needs AI cleanup."],
       toggle("command_mode.enabled", () => render())),
     on && row("Extra key for commands", null, segmented("command_mode.key", [{ value: "alt_l", label: "Alt" }, { value: "shift", label: "Shift" }], () => render())),
-    row("Paste last dictation", ["Press ", keysView(get("paste_last_keys") || []), " to paste your last dictation again."], null),
+    row("Paste last dictation", null, keysView(get("paste_last_keys") || [])),
   ];
 }
 
 function generalPage() {
-  const startRow = S.info.can_start_at_login ? row("Open at login", "Start Hyper-Wispr in the tray when you sign in to Windows.", (id) => {
+  const startRow = S.info.can_start_at_login ? row("Open at login", null, (id) => {
     const btn = h("button", { class: "switch", role: "switch", id, type: "button", "aria-checked": "false", "aria-describedby": id + "-d" });
     api().get_start_at_login().then((on) => btn.setAttribute("aria-checked", String(!!on)));
     btn.addEventListener("click", async () => {
@@ -691,28 +691,28 @@ function generalPage() {
   }) : null;
 
   return [
-    ...pageHeader("General", "How you start dictating, which microphone is used, and how text is put into your apps."),
+    ...pageHeader("General"),
     S.info.load_error && h("div", { class: "banner", role: "alert" }, S.info.load_error),
     cols([
       section("Shortcut", [shortcutRow(), ...commandRows()]),
       section("Microphone", [
         ...micRows(),
-        row("Whisper mode", "For speaking quietly, e.g. next to a patient. Picks up much softer speech (and a little more background noise). Also in the tray menu.", toggle("audio.whisper_mode")),
-        row("Keep the microphone ready", "The first word is never cut off. Windows then shows the microphone as in use whenever Hyper-Wispr runs.", toggle("audio.keep_mic_open")),
-        row("Mute music while dictating", "Mutes music and videos while you speak, then brings the sound back. Calls (Teams, Zoom…) are never muted.", toggle("audio.mute_media")),
+        row("Whisper mode", "Picks up soft speech, e.g. next to a patient. Also in the tray menu.", toggle("audio.whisper_mode")),
+        row("Keep the microphone ready", "Never cuts off the first word, but Windows then shows the microphone as in use.", toggle("audio.keep_mic_open")),
+        row("Mute music while dictating", "Calls (Teams, Zoom…) are never muted.", toggle("audio.mute_media")),
       ]),
     ], [
       section("Typing", [
-        row("Sounds", "A soft tone when recording starts and stops.", toggle("audio.sounds")),
-        row("Insert text by", "Pasting is instant and works almost everywhere. Typing is slower but works in apps that block pasting.",
+        row("Sounds", null, toggle("audio.sounds")),
+        row("Insert text by", "Typing is slower but works in apps that block pasting.",
           segmented("paste.method", [{ value: "clipboard", label: "Pasting" }, { value: "type", label: "Typing" }], () => render())),
-        get("paste.method") === "clipboard" && row("Keep my clipboard", "Put back whatever you had copied after pasting the dictation (except in Remote Desktop or Citrix, where that could paste the old contents).", toggle("paste.restore_clipboard")),
-        row("Add a space after", "So the next sentence doesn't run into the last one.", toggle("paste.add_trailing_space")),
-        row("Fit into the text around the cursor", "Reads the text just before the cursor so a dictation continues your sentence (no capital mid-sentence, the right spacing) and names on screen are spelled the same. Read on this PC only, never saved.", toggle("context_awareness")),
-        row("Learn from my corrections", "When you fix a word right after dictating, Hyper-Wispr offers it for your dictionary (Vocabulary page).", toggle("learn_corrections")),
+        get("paste.method") === "clipboard" && row("Keep my clipboard", "Puts back what you had copied (not in Remote Desktop or Citrix).", toggle("paste.restore_clipboard")),
+        row("Add a space after", null, toggle("paste.add_trailing_space")),
+        row("Fit into the text around the cursor", "Continues your sentence: no capital mid-sentence, the right spacing. Read on this PC only, never saved.", toggle("context_awareness")),
+        row("Learn from my corrections", "Words you fix right after dictating are offered for your dictionary.", toggle("learn_corrections")),
       ]),
       section("On-screen indicator", [
-        row("Show while dictating", "A small \"Listening\" bubble with voice bars appears while recording, then \"Transcribing\" until the text is typed.", toggle("overlay.enabled", () => render())),
+        row("Show while dictating", null, toggle("overlay.enabled", () => render())),
         get("overlay.enabled") && row("Position", null, segmented("overlay.position", [{ value: "bottom", label: "Bottom" }, { value: "top", label: "Top" }])),
       ]),
       startRow && section("System", [startRow]),
@@ -759,7 +759,7 @@ function languagesPicker() {
   paint();
   return h("div", { class: "row stack" },
     h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Languages you speak"),
-      h("div", { class: "row-desc" }, "Each dictation is recognised as one of these. With none selected, any language can be detected, which is less reliable.")),
+      h("div", { class: "row-desc" }, "With none selected, any language is detected (less reliable).")),
     wrap);
 }
 
@@ -771,25 +771,28 @@ function languageSummary() {
 }
 
 function speechPage() {
-  const auto = S.gpu === null ? "Checking your graphics card…"
-    : S.gpu ? "Your PC has an NVIDIA graphics card, so Automatic uses Large v3 Turbo on it (the first start downloads its speed-up files once)."
-      : "This PC has no NVIDIA graphics card that can run the speech model, so Automatic uses Small on the processor.";
+  const g = S.gpu;
+  const card = g && g.card ? g.card.replace(/^NVIDIA /, "") : "";
+  const auto = g === null ? "Checking your graphics card…"
+    : g.usable ? `Automatic uses Large v3 Turbo on your ${card || "NVIDIA graphics card"}.`
+      : card && g.reason ? `Automatic uses Small on the processor: your ${card} ${g.reason}.`
+        : "Automatic uses Small on the processor (no NVIDIA graphics card).";
   return [
-    ...pageHeader("Speech", "The speech-recognition model runs entirely on this computer. Nothing you say is sent anywhere."),
+    ...pageHeader("Speech", "Runs on this computer. Nothing you say is sent anywhere."),
     cols([
       section("Recognition", [
         row("Model", auto, select("speech.model", MODELS)),
         ...languageRows(),
-      ], "Changing the model downloads it the first time (it can take a few minutes). Dictation keeps working with the old model until the new one is ready."),
+      ], "A new model downloads the first time; dictation keeps working meanwhile."),
     ], [
       section("Performance", [
-        row("Run on", "Automatic uses an NVIDIA graphics card when it can run the model (GTX 10-series, MX150 or newer).",
+        row("Run on", null,
           segmented("speech.device", [{ value: "auto", label: "Automatic" }, { value: "cuda", label: "NVIDIA GPU" }, { value: "cpu", label: "Processor" }])),
-        row("Skip silence", "Ignores pauses so the model doesn't invent words while you think.", toggle("speech.vad_filter")),
+        row("Skip silence", "So pauses don't turn into invented words.", toggle("speech.vad_filter")),
       ]),
       advanced([
-        row("Accuracy search (beam size)", "Higher can be slightly more accurate but slower. 5 is a good default.", numberField("speech.beam_size", { min: 1, max: 10 })),
-        row("Number precision", "Leave on Automatic unless the model fails to load on your graphics card.",
+        row("Accuracy search (beam size)", "Higher is slightly more accurate but slower.", numberField("speech.beam_size", { min: 1, max: 10 })),
+        row("Number precision", "Leave on Automatic unless the model fails to load.",
           select("speech.compute_type", [{ value: "auto", label: "Automatic" }, { value: "float16", label: "float16 (GPU)" }, { value: "int8_float16", label: "int8_float16 (GPU, less memory)" }, { value: "int8", label: "int8 (CPU)" }])),
       ]),
     ]),
@@ -798,12 +801,12 @@ function speechPage() {
 
 function languageRows() {
   if (!has("speech.languages")) {
-    return [row("Language", "Pick one if you always dictate in the same language; it's faster and more accurate.",
+    return [row("Language", null,
       select("speech.language", [{ value: "", label: "Detect automatically" }, ...LANGUAGES.map(([v, l]) => ({ value: v, label: l }))]))];
   }
   if (get("speech.language")) {
     // A single forced language was set (e.g. by hand in the file): offer the way back.
-    return [row("Language", "Only this language is recognised.",
+    return [row("Language", null,
       select("speech.language", LANGUAGES.map(([v, l]) => ({ value: v, label: l })).concat([{ value: "", label: "Use my languages list instead" }]), { onChange: () => render() }))];
   }
   const langs = get("speech.languages") || [];
@@ -814,7 +817,7 @@ function languageRows() {
     render();
   };
   return [
-    row("I dictate in", choice ? { en: "Always English.", ar: "Always Arabic.", "en+ar": "Each dictation is recognised as English or Arabic." }[choice] : languageSummary(), (id) => {
+    row("I dictate in", choice ? null : languageSummary(), (id) => {
       const group = h("div", { class: "segmented", role: "radiogroup", id, "aria-labelledby": id + "-l" });
       [["en", "English"], ["en+ar", "English + Arabic"], ["ar", "Arabic"]].forEach(([v, label]) => group.append(h("button", {
         type: "button", role: "radio", "aria-checked": String(choice === v), onclick: () => pick(v),
@@ -849,35 +852,35 @@ function aiPage() {
   }
   const off = !enabled;
   return [
-    ...pageHeader("AI cleanup", "After transcription, a small AI model on your computer fixes punctuation, removes \"um\"s, handles \"no wait, I mean…\" corrections and formats lists."),
+    ...pageHeader("AI cleanup", "A small AI model on this computer fixes punctuation, \"um\"s, \"no wait, I mean…\" corrections and lists."),
     cols([
       section(null, [
         h("div", { class: "row" },
           h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Status"),
             h("div", { class: "row-desc" }, st && !st.running
-              ? ["AI cleanup needs the free Ollama app. Without it, you still get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
-              : "Uses Ollama, which runs AI models locally.")),
+              ? ["Needs the free Ollama app; without it you get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
+              : null)),
           h("div", { class: "row-control" }, pill, h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
         row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
       ]),
       section("Writing style", STYLE_APPS.map(([app, label]) => row(label, null, segmented(`ai_cleanup.styles.${app}`, TONE_OPTIONS))),
-        "How your text should sound in each kind of app. Very casual writes like a quick text: no capital at the start, no final full stop. Without AI cleanup only that part (and dropping the full stop of a one-line chat message) applies."),
+        "How your text should sound in each kind of app."),
       advanced([
-        row("Skip AI for short phrases", "Dictations with fewer words than this are pasted without the AI step, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
-        row("Time limit (seconds)", "If the AI takes longer, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
+        row("Skip AI for short phrases", "Fewer words than this skip the AI, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
+        row("Time limit (seconds)", "If the AI hasn't started by then, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
         row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
       ]),
     ], [
       section("Writing", [
         h("div", { class: "row" + (off ? " disabled" : "") },
           h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Medical writing"),
-            h("div", { class: "row-desc" }, get("medical.enabled") ? "On: drug names, doses and units are kept exact, and the AI is told the medical terms you said." : "Off. Medical dictation has its own page.")),
+            h("div", { class: "row-desc" }, get("medical.enabled") ? "On: numbers stay exact and the AI gets the medical terms you said." : "Off.")),
           h("div", { class: "row-control" }, h("button", { class: "btn small", type: "button", onclick: () => go("medical") }, "Medical settings"))),
-        row("Model", "Larger models write better but take longer. qwen2.5:3b is a good start.",
+        row("Model", "Larger models write better but are slower.",
           modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
         h("div", { class: "row stack" + (off ? " disabled" : "") },
           h("div", { class: "row-text" }, h("label", { class: "row-label", for: "extra" }, "Extra instructions"),
-            h("div", { class: "row-desc" }, "Anything else the AI should always do, in plain English. For example: \"Use British spelling.\"")),
+            h("div", { class: "row-desc" }, "For example: \"Use British spelling.\"")),
           h("textarea", { id: "extra", rows: 3, oninput: (e) => set("ai_cleanup.extra_instructions", e.target.value) }, get("ai_cleanup.extra_instructions") || "")),
       ]),
     ]),
@@ -887,7 +890,7 @@ function aiPage() {
 function suggestionsSection() {
   const card = h("div", { class: "card" });
   const wrap = h("section", { class: "section", hidden: true }, h("h2", { class: "section-title" }, "Words you corrected"), card,
-    h("p", { class: "section-note" }, "You fixed these right after a dictation. Add them so they're spelled your way next time."));
+    h("p", { class: "section-note" }, "You fixed these right after dictating. Add them to have them spelled your way."));
   const load = async () => {
     const items = await api().get_suggestions();
     wrap.hidden = !items.length;
@@ -913,22 +916,20 @@ function suggestionsSection() {
 
 function vocabPage() {
   return [
-    ...pageHeader("Vocabulary", "Teach Hyper-Wispr the words you use and the shortcuts you want."),
+    ...pageHeader("Vocabulary"),
     suggestionsSection(),
     cols([
       section("Dictionary", [chipList("dictionary", "Add a word, e.g. a colleague's name or a drug")],
-        "Spelled exactly like this. Separate several with commas."),
+        "Spelled exactly like this."),
       section("Starred words", [chipList("dictionary_starred", "Add a word that matters most")],
-        "The speech model only takes a limited number of words as hints; these always go in. Use it for the names and drugs you say most."),
-      section("Replacements", [pairList("replacements", "When you say", "Write", { leftPlaceholder: "hyper wisper", rightPlaceholder: "Hyper-Wispr" })],
-        "Always swaps the left side for the right side, ignoring capitals."),
-      section("Snippets", [pairList("snippets", "Say this on its own", "To insert", { multiline: true, leftPlaceholder: "my signature", rightPlaceholder: "Dr. …\nClinic …" })],
-        "Saying the phrase by itself pastes the full text instead."),
+        "Always given to the speech model first: the names and drugs you say most."),
+      section("Replacements", [pairList("replacements", "When you say", "Write", { leftPlaceholder: "hyper wisper", rightPlaceholder: "Hyper-Wispr" })]),
+      section("Snippets", [pairList("snippets", "Say this on its own", "To insert", { multiline: true, leftPlaceholder: "my signature", rightPlaceholder: "Dr. …\nClinic …" })]),
     ], [
       section("Basic cleanup", [
-        row("Remove filler words", "Removes the words below when they're said on their own.", toggle("cleanup.remove_fillers", () => render())),
+        row("Remove filler words", null, toggle("cleanup.remove_fillers", () => render())),
         get("cleanup.remove_fillers") && chipList("cleanup.filler_words", "Add a filler word"),
-        row("Spoken punctuation", "Say \"new line\", \"new paragraph\", \"period\" or \"comma\" to insert them.", toggle("cleanup.spoken_punctuation")),
+        row("Spoken punctuation", "Say \"new line\", \"new paragraph\", \"period\" or \"comma\".", toggle("cleanup.spoken_punctuation")),
       ]),
       section("Undo phrases", [chipList("cleanup.backtrack_phrases", "Add a phrase")],
         "Saying one of these deletes the sentence you just said."),
@@ -988,12 +989,12 @@ function historyPage() {
     oninput: (e) => { S.historySearch = e.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(load, 250); } });
   const days = get("history.keep_days") || 0;
   return [
-    ...pageHeader("History", "Your recent dictations, stored only on this computer and encrypted so only your Windows account can read them."),
+    ...pageHeader("History", "Stored only on this computer, encrypted so only your Windows account can read it."),
     section(null, [
-      row("Keep history", "Turn off to stop saving new dictations.", toggle("history.enabled")),
-      row("Delete dictations after", days ? "Older dictations are deleted automatically. Your usage totals on the dashboard are kept." : "Dictations are kept until you delete them.",
+      row("Keep history", null, toggle("history.enabled")),
+      row("Delete dictations after", days ? "The dashboard's totals are kept." : null,
         select("history.keep_days", [{ value: 7, label: "1 week" }, { value: 30, label: "30 days" }, { value: 90, label: "90 days" }, { value: 365, label: "1 year" }, { value: 0, label: "Never" }], { toValue: Number, onChange: () => render() })),
-      row("Keep recordings for Redo", "The last few recordings are kept (encrypted) so a dictation can be redone with a bigger, more accurate speech model.",
+      row("Keep recordings for Redo", "To redo a dictation with a more accurate speech model. Encrypted too.",
         select("history.keep_recordings", [{ value: 20, label: "Last 20" }, { value: 5, label: "Last 5" }, { value: 0, label: "None" }], { toValue: Number })),
       h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Delete all history")),
         h("div", { class: "row-control" }, confirmButton("Delete all…", "Delete every saved dictation?", "Delete all", async () => { await api().delete_history(null); load(); }))),
@@ -1042,7 +1043,7 @@ function notesPage() {
   };
   load();
   return [
-    ...pageHeader("Notes", "A notepad for things that don't belong in another app yet: ward lists, reminders, drafts. Click into a note and dictate. Stored only on this computer, encrypted."),
+    ...pageHeader("Notes", "Ward lists, reminders, drafts: click into a note and dictate. Stored only on this computer, encrypted."),
     h("div", { class: "notes" },
       h("div", { class: "notes-side" },
         h("button", { class: "btn primary with-icon", type: "button", onclick: () => { open(null); editor.focus(); } }, icon("plus"), "New note"),
@@ -1094,7 +1095,8 @@ function medicalPage() {
 
   // "Check a word": is it in the dictionary, and from which list; hide or bring back built-in words.
   const results = h("div", { class: "lookup-results", "aria-live": "polite" });
-  const lookup = h("input", { type: "search", class: "grow", placeholder: "Type a drug, term or abbreviation", "aria-label": "Check a word", spellcheck: "false" });
+  // The word and the sentence typed below are kept in S, so a re-render (hiding a word, a switch) doesn't clear them.
+  const lookup = h("input", { type: "search", class: "grow", placeholder: "Type a drug, term or abbreviation", "aria-label": "Check a word", spellcheck: "false", value: S.medLookup || "" });
   let lookupTimer = null;
   const paintLookup = async () => {
     const q = lookup.value.trim();
@@ -1119,57 +1121,55 @@ function medicalPage() {
       !found.length && h("div", { class: "row-desc" }, "Not in the dictionary."),
       !exact && h("div", { class: "lookup-row" }, add)].filter(Boolean));
   };
-  lookup.addEventListener("input", () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(paintLookup, 200); });
+  lookup.addEventListener("input", () => { S.medLookup = lookup.value; clearTimeout(lookupTimer); lookupTimer = setTimeout(paintLookup, 200); });
+  if (S.medLookup) paintLookup();
 
   // "Try it": type a sentence the way the speech model might write it.
   const tryOut = h("div", { class: "try-out row-desc", "aria-live": "polite" }, "Example: start metoprolal 25 milligrams PO b.i.d., BP 140 over 90");
-  const tryIn = h("input", { type: "text", class: "grow", "aria-label": "Try the medical fixes", spellcheck: "false", placeholder: "Type a sentence as you'd say it" });
+  const tryIn = h("input", { type: "text", class: "grow", "aria-label": "Try the medical fixes", spellcheck: "false", placeholder: "Type a sentence as you'd say it", value: S.medTry || "" });
   let tryTimer = null;
-  tryIn.addEventListener("input", () => {
-    clearTimeout(tryTimer);
-    tryTimer = setTimeout(async () => {
-      const text = tryIn.value;
-      if (!text.trim()) { tryOut.textContent = ""; return; }
-      const out = await api().medical_try(text, S.settings);
-      if (tryIn.value === text) tryOut.replaceChildren(h("span", { class: "row-label" }, "Becomes: "), out);
-    }, 250);
-  });
+  const tryIt = async () => {
+    const text = tryIn.value;
+    if (!text.trim()) { tryOut.textContent = ""; return; }
+    const out = await api().medical_try(text, S.settings);
+    if (tryIn.value === text) tryOut.replaceChildren(h("span", { class: "row-label" }, "Becomes: "), out);
+  };
+  tryIn.addEventListener("input", () => { S.medTry = tryIn.value; clearTimeout(tryTimer); tryTimer = setTimeout(tryIt, 250); });
+  if (S.medTry) tryIt();
 
   return [
-    ...pageHeader("Medical dictation", "Writes the way a clinical note is typed: drug names and terms spelled right, doses and units in standard form, and numbers never changed. It all runs on this computer."),
+    ...pageHeader("Medical dictation", "Drug names and terms spelled right, doses and units in standard form, numbers never changed."),
     h("div", { class: "card section medical-hero" + (on ? " on" : "") },
-      row("Medical dictation", on ? "On for every dictation." : "Off: dictation writes everyday text.", toggle("medical.enabled", () => render())),
-      shortcutRow("medical.toggle_keys", "On/off shortcut", "Press it from any app to switch medical dictation on or off; a notice says which. Also in the tray menu.")),
+      row("Medical dictation", null, toggle("medical.enabled", () => render())),
+      shortcutRow("medical.toggle_keys", "On/off shortcut", "Works from any app. Also in the tray menu.")),
     cols([
       section("Specialties", [h("div", { class: "row stack" + (off ? " disabled" : "") },
-        h("div", { class: "row-text" }, h("div", { class: "row-desc" }, "Add the words of your fields. Each one also teaches the speech model a few of its key terms.")),
         info ? specialties : h("span", { class: "empty" }, "Loading…"))]),
       section("Your medical words", [chipList("medical.custom_terms", "Add a drug, procedure, eponym or colleague's name")],
-        "Always spelled like this, and given to the speech model first. Words in your general dictionary (Vocabulary page) count too."),
+        "Always spelled like this, and given to the speech model first."),
       section("Check a word", [h("div", { class: "row stack" },
-        h("div", { class: "search-bar" }, lookup), results)],
-        "See whether a word is in the dictionary, add it, or hide a built-in word you never want."),
+        h("div", { class: "search-bar" }, lookup), results)]),
       (get("medical.hidden_terms") || []).length ? section("Hidden words", [chipList("medical.hidden_terms", "Hide another built-in word")],
-        "These built-in words are never used. Remove one to bring it back.") : null,
+        "Never used. Remove one to bring it back.") : null,
     ], [
       section("What it does", [
-        row("Teach the speech model", "Gives Whisper your words and the key terms of your specialties before it listens, so it hears them right.", toggle("medical.speech_hints"), { disabled: off }),
-        row("Fix near-miss spellings", "\"metoprolal\" becomes \"metoprolol\", \"levo floxacin\" becomes \"levofloxacin\". Ordinary English words are never changed.", toggle("medical.fix_spelling"), { disabled: off }),
-        row("Standard units", "\"25 milligrams\" becomes \"25 mg\", \"5 micrograms per kilogram per minute\" becomes \"5 mcg/kg/min\", \"BP 120 over 80\" becomes \"BP 120/80\".", toggle("medical.format_units"), { disabled: off }),
-        row("Full FDA drug list", "About 4,000 more generic and brand names, for spelling fixes and the AI.", toggle("medical.fda_drug_names", changed), { disabled: off }),
-        row("AI cleanup", get("ai_cleanup.enabled") ? "Keeps every number exactly as said and gets the medical terms you said, so it spells them right." : "AI cleanup is off, so only the fixes above apply.", null, { disabled: off }),
+        row("Teach the speech model", "Gives it your words and your specialties' key terms before it listens.", toggle("medical.speech_hints"), { disabled: off }),
+        row("Fix near-miss spellings", "\"metoprolal\" becomes \"metoprolol\". Everyday words are never changed.", toggle("medical.fix_spelling"), { disabled: off }),
+        row("Standard units", "\"25 milligrams\" becomes \"25 mg\", \"BP 120 over 80\" becomes \"BP 120/80\".", toggle("medical.format_units"), { disabled: off }),
+        row("Full FDA drug list", "About 4,000 more generic and brand names.", toggle("medical.fda_drug_names", changed), { disabled: off }),
+        row("AI cleanup", get("ai_cleanup.enabled") ? "Keeps every number exactly as said." : "Off, so only the fixes above apply.", null, { disabled: off }),
       ]),
       section("Try it", [h("div", { class: "row stack" + (off ? " disabled" : "") }, tryIn, tryOut)],
-        "Shows the spelling and unit fixes. The AI cleanup adds punctuation and the rest when you dictate."),
+        "The spelling and unit fixes, without the AI step."),
       section("Dictionary", [
         ...core.map((p) => h("div", { class: "row" + (p.on ? "" : " disabled") },
           h("div", { class: "row-text" }, h("div", { class: "row-label" }, p.title), h("div", { class: "row-desc" }, p.description || p.source)),
           h("div", { class: "row-control" }, h("span", { class: "pill" }, formatNumber(p.count))))),
         h("div", { class: "row" },
           h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Your own word lists"),
-            h("div", { class: "row-desc" }, mine.length ? mine.map((p) => `${p.title} (${formatNumber(p.count)})`).join(", ") : "Put .txt files with one word per line in this folder, e.g. a list exported from your hospital's formulary.")),
+            h("div", { class: "row-desc" }, mine.length ? mine.map((p) => `${p.title} (${formatNumber(p.count)})`).join(", ") : "Text files with one word per line, e.g. your hospital's formulary.")),
           h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: async () => { await api().open_medical_folder(); setTimeout(refreshMedical, 3000); } }, "Open folder"))),
-      ], info ? `${formatNumber(info.total)} terms in use. Drug names: U.S. FDA National Drug Code Directory (public domain). Anatomy, conditions, abbreviations and specialty lists: written for Hyper-Wispr. Abbreviations on the ISMP "do not use" list (QD, U, IU) are never produced.` : null),
+      ], info ? `${formatNumber(info.total)} terms in use. Drug names from the U.S. FDA drug directory (public domain); the other lists were written for Hyper-Wispr. The Joint Commission's "do not use" abbreviations (QD, U, IU) are never produced.` : null),
     ]),
   ];
 }
@@ -1256,7 +1256,7 @@ function updateRows() {
       d.state === "error" && h("div", { class: "hint-error", role: "alert" }, d.error),
       u.notes && h("details", { class: "notes" }, h("summary", {}, "Release notes"), h("div", { class: "notes-body" }, u.notes))));
   }
-  rows.push(row("Check automatically", "Looks for a new version once a day when this window opens. Only the version number is fetched from GitHub; nothing about you or your dictations is sent.", toggle("updates.check_automatically")));
+  rows.push(row("Check automatically", "Once a day. Nothing about you or your dictations is sent.", toggle("updates.check_automatically")));
   return rows;
 }
 
@@ -1264,21 +1264,21 @@ function aboutPage() {
   return [
     h("div", { class: "card section" }, h("div", { class: "about-hero" },
       h("div", { class: "brand-mark", "aria-hidden": "true", html: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>' }),
-      h("div", {}, h("h1", {}, "Hyper-Wispr"), h("div", { class: "row-desc" }, `Version ${S.info.version} · Private, offline dictation. Speech recognition and AI cleanup both run on this computer.`)))),
+      h("div", {}, h("h1", {}, "Hyper-Wispr"), h("div", { class: "row-desc" }, `Version ${S.info.version} · Private, offline dictation`)))),
     cols([
       section("Updates", updateRows()),
     ], [
       section("Files", [
         h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Data folder"),
-          h("div", { class: "mono" }, S.info.data_dir), h("div", { class: "row-desc" }, "Settings, history and the log file (useful when reporting a problem).")),
+          h("div", { class: "mono" }, S.info.data_dir), h("div", { class: "row-desc" }, "Settings, history and the log.")),
           h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_data_folder() }, "Open folder"))),
         h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Settings file"),
-          h("div", { class: "row-desc" }, "For advanced users. Changes made there are picked up automatically.")),
+          h("div", { class: "row-desc" }, "For advanced users. Changes apply right away.")),
           h("div", { class: "row-control" }, h("button", { class: "btn", type: "button", onclick: () => api().open_settings_file() }, "Open file"))),
       ]),
       section("Reset", [
         h("div", { class: "row" }, h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Reset all settings"),
-          h("div", { class: "row-desc" }, "Puts every setting back to how it was after installing. Your history is kept.")),
+          h("div", { class: "row-desc" }, "Your history is kept.")),
           h("div", { class: "row-control" }, confirmButton("Reset…", "Reset everything?", "Reset", async () => {
             clearTimeout(saveTimer);
             savePending = false;
@@ -1325,6 +1325,7 @@ function render(animate = false) {
   const scroll = main.scrollTop;
   const focusedId = document.activeElement && document.activeElement.id;
   stopMicTest();
+  uid = 0; // the same control gets the same id again, so the focus can be put back on it
   const page = h("div", { class: "page" + (animate ? " entering" : "") }, RENDER[S.page]());
   main.replaceChildren(page);
   if (!animate) {
@@ -1366,7 +1367,7 @@ async function init() {
     else if (S.page === "home" || S.page === "about") render();
   });
   api().list_microphones().then((m) => { S.mics = m; if (S.page === "general") render(); });
-  api().gpu_available().then((g) => { S.gpu = !!g; if (S.page === "speech") render(); }).catch(() => { S.gpu = false; });
+  api().gpu_status().then((g) => { S.gpu = g; if (S.page === "speech") render(); }).catch(() => { S.gpu = { usable: false }; });
   refreshOllama();
 }
 

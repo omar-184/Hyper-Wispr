@@ -133,3 +133,27 @@ def test_gpu_available_only_for_cards_that_can_run_whisper(data_dir, monkeypatch
     assert Api().gpu_available() is False
     monkeypatch.setattr(speech, "gpu_compute_types", lambda: ["int8_float32", "float32"])
     assert Api().gpu_available() is True
+
+
+def test_speech_page_says_why_the_graphics_card_is_not_used(data_dir, monkeypatch):
+    from hyper_wispr import gpu_pack, speech
+
+    monkeypatch.setattr(speech, "cuda_available", lambda: False)
+    monkeypatch.setattr(gpu_pack, "is_frozen_windows", lambda: True)
+    monkeypatch.setattr(gpu_pack, "folder", lambda m=None: None)
+    mx130 = {"name": "NVIDIA GeForce MX130", "compute": (5, 0), "memory": 2 * 2**30, "driver": 12040}
+    monkeypatch.setattr(gpu_pack, "nvidia_cards", lambda: [mx130])
+    assert Api().gpu_status() == {"usable": False, "card": "NVIDIA GeForce MX130", "reason": "is too old to speed up the speech model"}
+    monkeypatch.setattr(gpu_pack, "nvidia_cards", lambda: [{**mx130, "name": "NVIDIA GeForce RTX 3060", "compute": (8, 6)}])
+    assert Api().gpu_status() == {"usable": True, "card": "NVIDIA GeForce RTX 3060", "reason": ""}
+    monkeypatch.setattr(gpu_pack, "nvidia_cards", lambda: [])
+    assert Api().gpu_status() == {"usable": False, "card": "", "reason": ""}
+
+
+def test_the_window_fits_a_small_or_scaled_screen():
+    from hyper_wispr.settings_ui import WINDOW_SIZE, fit_window
+
+    assert fit_window(*WINDOW_SIZE, 2560, 1400) == WINDOW_SIZE
+    assert fit_window(*WINDOW_SIZE, 1366, 728) == (1240, 712)  # 1366 x 768 at 100%
+    assert fit_window(*WINDOW_SIZE, 1280, 680) == (1240, 664)  # 1920 x 1080 at 150%
+    assert fit_window(*WINDOW_SIZE, 1097, 576) == (1081, 560)  # 1920 x 1080 at 175%

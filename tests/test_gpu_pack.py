@@ -18,6 +18,10 @@ def test_only_cards_that_can_run_whisper_qualify():
     assert gpu_pack.why_not(RTX) == ""
     assert "memory" in gpu_pack.why_not({**RTX, "memory": 1 * 2**30})
     assert "driver" in gpu_pack.why_not({**RTX, "driver": 11080})
+    # Cards CTranslate2 only runs in float32: GTX 900 series (5.2) and Tesla P100 (6.0).
+    assert "too old" in gpu_pack.why_not({**RTX, "compute": (5, 2)})
+    assert "too old" in gpu_pack.why_not({**RTX, "compute": (6, 0)})
+    assert gpu_pack.why_not({**RTX, "compute": (7, 5)}) == "" and gpu_pack.why_not({**RTX, "compute": (12, 0)}) == ""
     assert gpu_pack.usable_card([MX130]) is None
     assert gpu_pack.usable_card([MX130, RTX]) is RTX
     assert gpu_pack.usable_card([]) is None
@@ -66,11 +70,13 @@ def test_download_unpacks_only_the_dlls_and_checks_the_checksum(tmp_path, monkey
         _fake_wheel(src, "cudnn.whl", ["nvidia/cudnn/bin/cudnn64_9.dll", "nvidia/cudnn/lib/x64/cudnn.lib"]),
     ]}
     (tmp_path / "nvidia" / "cuda11").mkdir(parents=True)  # files for an older CUDA: removed
+    (tmp_path / "nvidia" / "nvidia_cudnn_cu12-9.1-win_amd64.whl.part").write_bytes(b"x" * 100)  # and an old download
     seen = []
     gpu_pack._install(m, lambda done, total, what: seen.append((done, total, what)))
     target = tmp_path / "nvidia" / "cuda12"
     assert sorted(p.name for p in target.iterdir()) == ["cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll", "pack.json"]
     assert not (tmp_path / "nvidia" / "cuda11").exists()
+    assert not list((tmp_path / "nvidia").glob("*.part"))
     assert gpu_pack.folder(m) == target
     total = sum(w["size"] for w in m["wheels"])
     assert seen[-1] == (total, total, "gpu") and all(w == "gpu" for *_, w in seen)
@@ -115,3 +121,42 @@ def test_download_label_names_what_is_downloading():
     assert "NVIDIA" in _download_label({"done": 5e8, "total": 1e9, "what": "gpu"})
     assert "speech model" in _download_label({"done": 5e8, "total": 1e9, "what": "model"})
     assert "speech model" in _download_label({"done": 5e8, "total": 1e9})
+
+
+def test_a_download_cut_off_is_kept_and_resumed_at_the_next_start(tmp_path, monkeypatch):
+    """urllib just stops reading when the connection drops; the part must not be thrown away."""
+    path = tmp_path / "x.whl.part"
+    data = b"0123456789" * 1000
+
+    class Cut:
+        status = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def read(self, n):
+            chunk, self.body = self.body[:n], self.body[n:]
+            return chunk
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(gpu_pack.urllib.request, "urlopen", lambda req, timeout: Cut(data[:4000]))
+    sha = hashlib.sha256(data).hexdigest()
+    with pytest.raises(OSError, match="next start"):
+        gpu_pack._download("https://files.pythonhosted.org/x.whl", path, sha, len(data), lambda done: None)
+    assert path.stat().st_size == 4000
+    asked = []
+
+    def resume(req, timeout):
+        asked.append(req.get_header("Range"))
+        r = Cut(data[4000:])
+        r.status = 206
+        return r
+
+    monkeypatch.setattr(gpu_pack.urllib.request, "urlopen", resume)
+    gpu_pack._download("https://files.pythonhosted.org/x.whl", path, sha, len(data), lambda done: None)
+    assert asked == ["bytes=4000-"] and path.read_bytes() == data

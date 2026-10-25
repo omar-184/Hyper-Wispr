@@ -169,6 +169,61 @@ def _sounds(word: str) -> str:
     return w
 
 
+# Word parts that carry meaning. A word that differs from a term in one of them is another word, not a
+# slip: "hypermagnesemia" isn't "hypomagnesemia", "tachycardic" isn't "tachycardia", "thrombolysis"
+# isn't "thrombosis".
+_LEADS = sorted("""hyper hypo intra extra inter infra supra sub pre post peri ante endo exo ecto epi para retro trans
+    brady tachy micro macro mono poly oligo pan hemi anti dys myo myelo neur nephr hepat gastr enter cyst oste arthr
+    chondr cardi angi arter ven hemat lymph leuk erythr thromb cyt pneum bronch trache laryng pharyng rhin ophthalm
+    crani encephal cerebr spondyl thyr adren pancreat proct ureter urethr pyel men metr mening col colp salping oophor
+    orch prostat mast derm dermat hyster lapar thorac pleur""".split(), key=len, reverse=True)
+_ENDINGS = sorted("""itis itic osis otic emia emic uria uric pnea pneic penia penic rrhagia rrhagic rrhea ectomy otomy
+    ostomy plasty plastic plasia pexy rrhaphy scopy scope scopic graphy gram graph lysis lytic pathy pathic algia
+    megaly cytosis kinesia kinesis kinetic trophy trophic ia ic al ar ary ous ive ion ed er ing y a""".split(),
+    key=len, reverse=True)
+
+
+def _lead(word: str) -> str:
+    return next((p for p in _LEADS if word.startswith(p) and len(word) - len(p) >= 3), "")
+
+
+def _ending(word: str) -> str:
+    return next((e for e in _ENDINGS if word.endswith(e) and len(word) - len(e) >= 3), "")
+
+
+def _consonants(text: str) -> str:
+    return re.sub(r"[aeiouy]", "", text)
+
+
+def changes_meaning(word: str, term: str) -> bool:
+    """True if `term` differs from `word` in a part that carries meaning, so it can't be a slip of it.
+    A vowel slip inside such a part ("pancroatitis", "gallbladdar") is still a slip."""
+    w, t = word.lower(), term.lower()
+    lw, lt = _lead(w), _lead(t)
+    if lw and lt and not (lw.startswith(lt) or lt.startswith(lw)):
+        return True  # hyper/hypo, intra/extra, arter/arthr
+    if lw and not lt and len(lw) >= 4 and lw not in ("ante", "para", "post", "poly") and not t.startswith(lw):
+        return True  # a root the term doesn't have: thyroxine isn't tyrosine
+    ew, et = _ending(w), _ending(t)
+    if ew != et:
+        if len(ew) >= 4 and _consonants(ew) != _consonants(t[-len(ew):]):
+            return True  # "-itis" isn't "-osis", nor "epididymis" for "epididymitis"
+        if ew and et and _consonants(ew) != _consonants(et):
+            if w[: -len(ew)].rstrip("aeiou") == t[: -len(et)].rstrip("aeiou"):
+                return True  # the same stem with another ending: tachycardic, nebulized
+    return False
+
+
+def _edits(a: str, b: str) -> int:
+    """Letters to add, drop or change to turn a into b."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, cb in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (ca != cb))
+    return row[-1]
+
+
 class Lexicon:
     """The words of the active packs, indexed for fast "is there a term that looks like this"."""
 
@@ -177,12 +232,17 @@ class Lexicon:
         self.terms: dict[str, str] = {}  # lowercase -> as written
         self.source: dict[str, str] = {}  # lowercase -> pack title
         self.aliases: dict[str, str] = {}
+        # Common drugs and your own words, which the AI step must keep even when they're also
+        # everyday words ("heparin", "insulin"); see key_terms().
+        self.drugs: set[str] = set()
         self.packs = list(packs)
         for pack in self.packs:
             for t in pack.terms:
                 if t.lower() not in hidden_l:
                     self.terms.setdefault(t.lower(), t)
                     self.source.setdefault(t.lower(), pack.title)
+                    if pack.id == "core-drugs":
+                        self.drugs.add(t.lower())
             for heard, t in pack.aliases.items():
                 if t.lower() not in hidden_l:
                     self.aliases[heard] = t
@@ -191,12 +251,15 @@ class Lexicon:
             if t:
                 self.terms[t.lower()] = t
                 self.source[t.lower()] = "Your words"
+                self.drugs.add(t.lower())
         # Words of multi-word terms ("fibrillation" of "atrial fibrillation") count as medical words too.
         self.parts: dict[str, str] = {}
         for low, term in self.terms.items():
             if " " in low:
+                fda = self.source[low].startswith("FDA")
                 for part, written in zip(low.split(), term.split()):
-                    if len(part) >= 5 and part not in self.terms:
+                    # Not the packaging words of brand names ("Compressed", "Sprinkle")
+                    if len(part) >= 5 and part not in self.terms and not (fda and _is_english(part)):
                         self.parts.setdefault(part, written)
         # Single words long enough to compare safely, bucketed by how they start.
         self.words: dict[str, list[tuple[str, str, str]]] = {}
@@ -214,8 +277,8 @@ class Lexicon:
         return self.words.get(_group(word), [])
 
     def best(self, word: str, threshold: float) -> tuple[str, float] | None:
-        """The one term that looks like `word` (ratio >= threshold), or None if there's none or
-        two look about as alike."""
+        """The one term that looks like `word` (ratio >= threshold), or None if there's none, two look
+        about as alike, or the closest means something else ("hypermagnesemia" is never "hypomagnesemia")."""
         w = word.lower()
         ws = _sounds(w)
         scored = []
@@ -225,16 +288,29 @@ class Lexicon:
             m = SequenceMatcher(None, w, key)
             if m.real_quick_ratio() < threshold - 0.1 or m.quick_ratio() < threshold - 0.1:
                 continue
-            score = max(m.ratio(), SequenceMatcher(None, ws, sounds).ratio() - 0.02)
+            score = m.ratio()
+            if score < threshold - 0.2:
+                continue  # sounding alike only counts for words that are spelled alike too ("Qassim")
+            score = max(score, SequenceMatcher(None, ws, sounds).ratio() - 0.02)
             score -= 0.03 * max(0, abs(len(key) - len(w)) - 1)  # "testlist" isn't "testis"
             if score >= threshold:
-                scored.append((score, term))
+                scored.append((score, term, key))
         if not scored:
             return None
         scored.sort(reverse=True)
-        if len(scored) > 1 and scored[1][0] > scored[0][0] - 0.04 and scored[1][1].lower() != scored[0][1].lower():
-            return None  # ambiguous: leave it alone
-        return scored[0][1], scored[0][0]
+        score, term, key = scored[0]
+        if changes_meaning(w, key):
+            return None
+        for other_score, other, other_key in scored[1:]:
+            if other.lower() == term.lower():
+                continue
+            if other_score > score - 0.04:
+                return None  # two terms about as close: leave it alone
+            # One slip from either of two terms that mean different things: "hypetension", "laminoctomy".
+            apart = changes_meaning(key, other_key) or changes_meaning(other_key, key)
+            if apart and _edits(w, other_key) <= _edits(w, key):
+                return None
+        return term, score
 
 
 _lex_cache: tuple[Any, Lexicon | None] = (None, None)
@@ -364,9 +440,15 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
                 continue
             exact = lex.terms.get(joined)
             english = sum(_is_english(w) for w in words)
-            if exact and " " not in exact and (english < n or len(joined) >= 9):
+            # A whole term then a short word is two words: "Start enalapril at 5 mg" isn't IV enalaprilat.
+            trailing_word = lex.knows(words[0]) and all(len(w) <= 3 and _is_english(w) for w in words[1:])
+            if exact and " " not in exact and (english < n or len(joined) >= 9) and not trailing_word:
                 match = exact
-            elif english < n and len(joined) >= 8 and (best := lex.best(joined, 0.9)) and " " not in best[0]:
+            # Joined by likeness only when every piece is a fragment: a whole term, or a short word
+            # next to one, is a word of its own ("Metoprolol no longer needed" keeps its "no").
+            elif (english < n and len(joined) >= 8
+                  and not any(lex.knows(w) or _inflection_of_known(w, lex) or (len(w) <= 3 and _is_english(w)) for w in words)
+                  and (best := lex.best(joined, 0.9)) and " " not in best[0]):
                 match = best[0]
             else:
                 continue
@@ -381,7 +463,7 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
         word = tok.group()
         low = word.lower()
         i += 1
-        if len(word) < 6 or lex.knows(word) or low in known or _is_english(word) or _inflection_of_known(word, lex):
+        if len(word) < 6 or low in known or _is_known(word, lex) or _is_known(_us_spelling(low), lex):
             continue
         # A capital mid-sentence is probably a name: only very close matches.
         before = text[: tok.start()].rstrip()
@@ -395,6 +477,15 @@ def fix_spelling(text: str, lex: Lexicon, protected: set[str] = frozenset()) -> 
         pos = tok.end()
     out.append(text[pos:])
     return "".join(out), changes
+
+
+def _is_known(word: str, lex: Lexicon) -> bool:
+    return lex.knows(word) or _is_english(word) or _inflection_of_known(word, lex)
+
+
+def _us_spelling(word: str) -> str:
+    """"haemoglobin" -> "hemoglobin": British spellings are right too, so they're left as they are."""
+    return re.sub(r"our$", "or", word.replace("ae", "e").replace("oe", "e"))
 
 
 def _inflection_of_known(word: str, lex: Lexicon) -> bool:
@@ -411,6 +502,8 @@ _UNIT_WORDS = {
     "milliequivalent": "mEq", "milliequivalents": "mEq", "millimole": "mmol", "millimoles": "mmol",
     "millimeter": "mm", "millimeters": "mm", "millimetre": "mm", "millimetres": "mm", "centimeter": "cm",
     "centimeters": "cm", "centimetre": "cm", "centimetres": "cm", "nanogram": "ng", "nanograms": "ng",
+    "deciliter": "dL", "deciliters": "dL", "decilitre": "dL", "decilitres": "dL", "square meter": "m²",
+    "square meters": "m²", "square metre": "m²", "square metres": "m²",
     "hour": "h", "hours": "h", "minute": "min", "minutes": "min", "kg": "kg", "mg": "mg", "mcg": "mcg", "ml": "mL",
 }
 _UNIT_PHRASES = [
@@ -421,18 +514,26 @@ _UNIT_PHRASES = [
     (r"degrees? celsius", "°C"),
     (r"degrees? fahrenheit", "°F"),
 ]
-_NUM = r"\d+(?:\.\d+)?"
+_NUM = r"(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)"
+_JOINED_UNITS = {"ml": "mL", "dl": "dL", "meq": "mEq"}
+_JOINED = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)"
+                     r"(mcg|mEq|meq|mmol|mmHg|mg|kg|mL|ml|dL|dl|mm|cm|ng|g|L)(?!\w)")
+
+
+def _zero(number: str) -> str:
+    """".5" -> "0.5": a dose without its leading zero is read as 5 (on The Joint Commission's "do not use" list)."""
+    return "0" + number if number.startswith(".") else number
 
 
 def format_units(text: str) -> str:
     """"25 milligrams" -> "25 mg", "5 micrograms per kilogram per minute" -> "5 mcg/kg/min",
-    "120 over 80" -> "120/80". Numbers themselves are never changed."""
+    "120 over 80" -> "120/80", "2g" -> "2 g". Numbers keep their value; ".5 mg" gets its leading zero."""
     for phrase, unit in _UNIT_PHRASES:
         sep = "" if unit in ("%", "°C", "°F") else " "
-        text = re.sub(rf"({_NUM})\s*(?:{phrase})\b", lambda m, u=unit, s=sep: m.group(1) + s + u, text, flags=re.IGNORECASE)
+        text = re.sub(rf"({_NUM})\s*(?:{phrase})\b", lambda m, u=unit, s=sep: _zero(m.group(1)) + s + u, text, flags=re.IGNORECASE)
     units = "|".join(sorted(map(re.escape, _UNIT_WORDS), key=len, reverse=True))
     # Hours and minutes are durations ("for 2 hours"): only shortened as part of a rate.
-    rate = re.compile(rf"\b({_NUM})\s+({units})((?:\s+per\s+(?:{units}))*)\b", re.IGNORECASE)
+    rate = re.compile(rf"({_NUM})\s+({units})((?:\s+per\s+(?:{units}))*)\b", re.IGNORECASE)
 
     def unit_of(word: str) -> str:
         return _UNIT_WORDS[word.lower()]
@@ -442,9 +543,12 @@ def format_units(text: str) -> str:
         pers = re.findall(rf"per\s+({units})", m.group(3) or "", flags=re.IGNORECASE)
         if unit_of(first) in ("h", "min") and not pers:
             return m.group(0)
-        return m.group(1) + " " + "/".join([unit_of(first)] + [unit_of(p) for p in pers])
+        return _zero(m.group(1)) + " " + "/".join([unit_of(first)] + [unit_of(p) for p in pers])
 
     text = rate.sub(repl, text)
+    # "25mg" -> "25 mg": a dose run into its unit is on ISMP's list of error-prone abbreviations (the
+    # "m" is read as a zero, 10mg as 100 mg). Only written units, so "4G" and "q4h" stay as they are.
+    text = _JOINED.sub(lambda m: _zero(m.group(1)) + " " + _JOINED_UNITS.get(m.group(2), m.group(2)), text)
     # Blood pressure: "BP 120 over 80" (only after "BP" or "pressure", or before "mmHg").
     bp = re.compile(r"(?i)(\b(?:BP|B\.P\.|pressures?)\b[^.\n\d]{0,20}|)\b(\d{2,3}) over (\d{2,3})\b(?=(\s*mmHg)?)")
     return bp.sub(lambda m: m.group(0) if not (m.group(1) or m.group(4)) else m.group(1) + m.group(2) + "/" + m.group(3), text)
@@ -504,6 +608,18 @@ def ai_terms(text: str, settings: dict[str, Any], limit: int = 30) -> list[str]:
         if len(found) >= limit:
             break
     return found[:limit]
+
+
+def key_terms(text: str, settings: dict[str, Any]) -> list[str]:
+    """The medical words of this dictation that the AI step must keep: drug names, your own words,
+    and terms that aren't everyday English ("hepatosplenomegaly", not "pressure")."""
+    lex = lexicon(settings)
+    found: list[str] = []
+    for t in _TOKEN.finditer(text):
+        low = t.group().lower()
+        if len(low) >= 4 and low in lex.terms and low not in found and (low in lex.drugs or not _is_english(low)):
+            found.append(low)
+    return found
 
 
 def lookup(query: str, settings: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
