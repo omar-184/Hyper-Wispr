@@ -59,12 +59,13 @@ jobs:
           key: llama-cpp-python-0.3.36-avx2-clang-py3.12-v2
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Compile the AI engine if it isn't cached
-        shell: bash
+        # PowerShell, not bash: Git's bash has its own `link` that would shadow Microsoft's linker.
+        shell: pwsh
         env:
           CMAKE_GENERATOR: Ninja
           CMAKE_ARGS: "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DLLAVA_BUILD=OFF"
         run: |
-          ls wheels/llama_cpp_python-*.whl 2>/dev/null || pip wheel --no-deps -w wheels "llama-cpp-python==0.3.36"
+          if (-not (Test-Path wheels/llama_cpp_python-*.whl)) { pip wheel --no-deps -w wheels "llama-cpp-python==0.3.36"; if ($LASTEXITCODE) { exit 1 } }
 
       - name: Install dependencies
         shell: bash
