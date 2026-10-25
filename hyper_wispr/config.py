@@ -76,7 +76,7 @@ DEFAULTS: dict[str, Any] = {
         # "builtin": run by Hyper-Wispr itself (downloaded once); "ollama": served by the Ollama app.
         "engine": "builtin",
         # The built-in engine's model: "qwen2.5-1.5b" (fast), "qwen2.5-3b" (better), or a path to a .gguf file.
-        "builtin_model": "qwen2.5-3b",
+        "builtin_model": "qwen2.5-1.5b",
         # How many words the built-in engine guesses ahead from the dictation (0 turns guessing off).
         "draft_tokens": 8,
         "ollama_url": "http://127.0.0.1:11434",

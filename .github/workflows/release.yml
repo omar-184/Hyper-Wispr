@@ -141,6 +141,6 @@ jobs:
 
             Run the installer (no administrator rights needed), then hold **Ctrl + Win**, speak, and let go.
             The first start downloads the speech model once (about 0.5 to 1.6 GB, plus the NVIDIA files above if your card can use them); after that everything runs offline.
-            AI cleanup is built in: the first start also downloads its model once (about 2 GB). Ollama is no longer needed (it can still be chosen in Settings → AI cleanup).
+            AI cleanup is built in: the first start also downloads its model once (about 1 GB). Ollama is no longer needed (it can still be chosen in Settings → AI cleanup).
 
             Windows may show "Windows protected your PC" because the installer isn't code-signed: click **More info → Run anyway**.
