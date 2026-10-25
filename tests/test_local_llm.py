@@ -135,4 +135,4 @@ def test_the_window_shows_the_built_in_models():
 def test_the_tray_says_which_model_downloads():
     from hyper_wispr.app import _download_label
 
-    assert _download_label({"done": 5e8, "total": 2e9, "what": "ai"}) == "Downloading the AI cleanup model: 25% of 2.0 GB"
+    assert _download_label({"done": 500_000_000, "total": 2_000_000_000, "what": "ai"}) == "Downloading the AI cleanup model: 25% of 2.0 GB"
