@@ -48,10 +48,25 @@ jobs:
         # So the About page and --version show the version being released.
         run: sed -i -E 's/^__version__ = ".*"/__version__ = "${{ steps.v.outputs.version }}"/' hyper_wispr/__init__.py
 
+      - name: The compiled AI engine, if cached
+        # llama-cpp-python is source-only on PyPI. Compiled once per version and kept in the cache.
+        # Not for the build machine's processor: for any with AVX2 (Intel 2013+, AMD 2015+), which
+        # local_llm checks before using it. OpenMP off, so no extra Microsoft DLL is needed.
+        uses: actions/cache@v4
+        with:
+          path: wheels
+          key: llama-cpp-python-0.3.36-avx2-py3.12-v1
+      - name: Compile the AI engine if it isn't cached
+        shell: bash
+        env:
+          CMAKE_ARGS: "-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DLLAVA_BUILD=OFF"
+        run: |
+          ls wheels/llama_cpp_python-*.whl 2>/dev/null || pip wheel --no-deps -w wheels "llama-cpp-python==0.3.36"
+
       - name: Install dependencies
         shell: bash
         run: |
-          pip install . "pyinstaller>=6.10" packaging
+          pip install --find-links wheels ".[ai]" "pyinstaller>=6.10" packaging
           # Generate the UI Automation wrapper now, so it's bundled instead of written at run time.
           python -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll'); import comtypes.gen.UIAutomationClient"
 
@@ -122,6 +137,6 @@ jobs:
 
             Run the installer (no administrator rights needed), then hold **Ctrl + Win**, speak, and let go.
             The first start downloads the speech model once (about 0.5 to 1.6 GB, plus the NVIDIA files above if your card can use them); after that everything runs offline.
-            For the optional AI cleanup step, install [Ollama](https://ollama.com/download); Hyper-Wispr downloads its model automatically.
+            AI cleanup is built in: the first start also downloads its model once (about 2 GB). Ollama is no longer needed (it can still be chosen in Settings → AI cleanup).
 
             Windows may show "Windows protected your PC" because the installer isn't code-signed: click **More info → Run anyway**.

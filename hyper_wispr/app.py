@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Any
 
-from . import ai_cleanup, cleanup, config, context, hotkeys, media, medical, overlay, paste, settings_ui, uia
+from . import ai_cleanup, cleanup, config, context, hotkeys, local_llm, media, medical, overlay, paste, settings_ui, uia
 from .audio import Recorder, chime, rms
 from .history import History
 from .learn import Learner
@@ -47,6 +47,8 @@ def process_text(raw: str, settings: dict[str, Any], app_type: str, before: str 
 
 
 HOUR = 3600
+# AI cleanup settings that need the model got ready again (downloaded or loaded) when they change.
+AI_RELOAD_KEYS = ("enabled", "engine", "builtin_model", "model")
 
 
 class App:
@@ -85,6 +87,8 @@ class App:
         self.last_text = ""
         self.focus: uia.Focus = uia.Focus()  # the text box when the current recording started
         self.download: dict[str, Any] | None = None  # speech model download in progress
+        self.ai_download: dict[str, Any] | None = None  # AI cleanup model download in progress
+        self._ai_lock = threading.Lock()
         self._mic_warned: str | None = None
         self.settings_window: subprocess.Popen | None = None
         self.overlay = overlay.Overlay(
@@ -324,7 +328,7 @@ class App:
         again = f" To type what you said instead, press {again}." if again else ""
         if not self.settings["ai_cleanup"].get("enabled"):
             self.last_text = instruction
-            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings (it uses Ollama) to edit text by voice." + again)
+            self.notify("Command mode needs AI cleanup", "Turn on AI cleanup in Settings to edit text by voice." + again)
             return
         self.wait_for_keys_released()
         selected = focus.selected if not focus.password else ""
@@ -387,18 +391,28 @@ class App:
         keys = " + ".join(hotkeys.display_name(k) for k in self.settings["push_to_talk_keys"])
         log.info("Ready: speech model %s, microphone '%s'", self.transcriber.description, self.recorder.device_name())
         self.notify("Hyper-Wispr is ready", f"Hold {keys} and speak, or tap it for hands-free.")
-        if self.settings["ai_cleanup"]["enabled"]:
-            if not ai_cleanup.is_available(self.settings):
-                ai_cleanup.try_start_ollama(self.settings)
-            if ai_cleanup.is_available(self.settings):
-                try:
-                    ai_cleanup.ensure_model(self.settings)
-                except Exception as e:
-                    log.warning("Could not download the Ollama model: %s", e)
-                ai_cleanup.warm_up(self.settings)
-                log.info("AI cleanup ready with Ollama model %s", self.settings["ai_cleanup"]["model"])
-            else:
-                log.warning("Ollama is not running; AI cleanup will be skipped until it is.")
+        self.prepare_ai()
+
+    def prepare_ai(self) -> None:
+        """Download (first start), load and warm up the AI cleanup model. Dictation works meanwhile,
+        with the basic cleanup."""
+        with self._ai_lock:
+            try:
+                ai_cleanup.prepare(self.settings, self._ai_download_progress)
+            except Exception:
+                log.exception("Could not get the AI cleanup model ready")
+            finally:
+                if self.ai_download is not None:
+                    self.ai_download = None
+                    self._publish_status(self.status)
+                    if self.icon is not None:
+                        self.icon.title = f"Hyper-Wispr: {LABELS[self.status]}"
+
+    def _ai_download_progress(self, done: int, total: int, what: str = "ai") -> None:
+        self.ai_download = {"done": done, "total": total, "what": what}
+        self._publish_status(self.status)
+        if self.icon is not None and self.status == "idle":
+            self.icon.title = "Hyper-Wispr: " + _download_label(self.ai_download)
 
     def _download_progress(self, done: int, total: int, what: str = "model") -> None:
         """Called while the speech model (what="model") or the NVIDIA files ("gpu") download for the first time."""
@@ -452,6 +466,8 @@ class App:
             "error": self.load_error,
             # First start: {"done": bytes, "total": bytes (0 = unknown)} while the speech model downloads.
             "download": self.download if status == "loading" else None,
+            # First start: the AI cleanup model downloading, while dictation already works.
+            "ai_download": self.ai_download,
             "pid": os.getpid(),
             "time": time.time(),
         }
@@ -513,6 +529,7 @@ class App:
         from .speech import needs_reload
 
         old_speech = dict(self.settings["speech"])
+        old_ai = {k: self.settings["ai_cleanup"].get(k) for k in AI_RELOAD_KEYS}
         # update() instead of clear()+update(): other threads read self.settings at any moment.
         self.settings.update(config.load())
         self.recorder.cfg = self.settings["audio"]
@@ -537,6 +554,9 @@ class App:
             reload = speech != old_speech  # retry a failed first load with the new choice
         if reload:
             threading.Thread(target=self.reload_model, daemon=True).start()
+        # A different AI engine or model (or AI cleanup turned on): download or load it now, not at the next dictation.
+        if {k: self.settings["ai_cleanup"].get(k) for k in AI_RELOAD_KEYS} != old_ai and self.transcriber is not None:
+            threading.Thread(target=self.prepare_ai, daemon=True, name="ai-prepare").start()
 
     def reload_model(self) -> None:
         """Load the newly chosen speech model in the background; the old one keeps working meanwhile."""
@@ -629,6 +649,7 @@ class App:
         )
         self.icon = pystray.Icon("hyper-wispr", _make_icon(COLORS["loading"]), "Hyper-Wispr: loading", menu)
         self.icon.run(setup=self._start_background)
+        local_llm.close()
 
     def _start_background(self, icon) -> None:
         # Runs once the tray icon exists, so status updates and notifications have somewhere to go.
@@ -654,7 +675,7 @@ class App:
 
 def _download_label(download: dict[str, Any]) -> str:
     done, total = download.get("done", 0), download.get("total", 0)
-    what = "the NVIDIA speed-up files" if download.get("what") == "gpu" else "the speech model"
+    what = {"gpu": "the NVIDIA speed-up files", "ai": "the AI cleanup model"}.get(download.get("what"), "the speech model")
     if total:
         return f"Downloading {what}: {min(99, done * 100 // total)}% of {total / 1e9:.1f} GB"
     return f"Downloading {what}: {done / 1e6:.0f} MB so far"

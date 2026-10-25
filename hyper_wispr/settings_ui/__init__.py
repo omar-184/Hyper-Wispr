@@ -182,7 +182,19 @@ class Api:
         with self._mic_lock:
             self._mic_level = 0.0
 
-    # ---- Ollama ----------------------------------------------------------
+    # ---- AI cleanup ------------------------------------------------------
+    def ai_status(self) -> dict[str, Any]:
+        """The built-in AI engine: can this PC run it, and which models are downloaded."""
+        from .. import local_llm
+
+        return {
+            "usable": local_llm.usable(),
+            "why_not": local_llm.why_not(),
+            "default": local_llm.DEFAULT_MODEL,
+            "models": [{"key": k, "label": m["label"], "downloaded": local_llm.model_path(k) is not None}
+                       for k, m in local_llm.MODELS.items()],
+        }
+
     def ollama_status(self, url: str) -> dict[str, Any]:
         try:
             with urllib.request.urlopen(url.rstrip("/") + "/api/tags", timeout=2) as resp:
@@ -351,7 +363,8 @@ class Api:
         if running is False:
             return {"running": False, "status": "stopped", "label": "Not running"}
         return {"running": True, "status": info.get("status", "loading"), "label": info.get("label", "Starting…"),
-                "model": info.get("model", ""), "error": info.get("error", ""), "download": info.get("download")}
+                "model": info.get("model", ""), "error": info.get("error", ""), "download": info.get("download"),
+                "ai_download": info.get("ai_download")}
 
     def get_stats(self, days: int = 14) -> dict[str, Any]:
         """Totals and a day-by-day count of words for the dashboard, worked out from the history."""
