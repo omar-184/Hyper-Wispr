@@ -26,14 +26,16 @@ if errorlevel 1 (
 echo Downloading the speech model (one time, can take a few minutes)...
 .venv\Scripts\python.exe -c "from hyper_wispr import config; from hyper_wispr.speech import Transcriber; print('Speech model ready:', Transcriber(config.load()).description)" || goto :error
 
-where ollama >nul 2>nul
+echo Installing the built-in AI cleanup engine...
+uv pip install --python .venv "llama-cpp-python==0.3.36" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 if errorlevel 1 (
     echo.
-    echo Ollama is not installed, so the AI cleanup step will be skipped.
-    echo To turn it on later, install Ollama from https://ollama.com and run this installer again.
+    echo The built-in AI engine couldn't be installed, so AI cleanup will use Ollama if it's installed.
+    where ollama >nul 2>nul
+    if not errorlevel 1 ollama pull qwen2.5:3b
 ) else (
-    echo Downloading the local AI cleanup model...
-    ollama pull qwen2.5:3b
+    echo Downloading the AI cleanup model (one time, about 2 GB^)...
+    .venv\Scripts\python.exe -c "from hyper_wispr import config, local_llm; s = config.load()['ai_cleanup']; print('AI model ready:', local_llm.download(s.get('builtin_model') or local_llm.DEFAULT_MODEL))"
 )
 
 echo.

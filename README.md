@@ -10,9 +10,9 @@ but is written from scratch and uses open-source models:
 - **Speech to text:** OpenAI's Whisper, running locally through [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
   Uses your NVIDIA graphics card if it can run the model (GTX 10-series, MX150 or newer), otherwise the CPU.
 - **Cleanup:** removes "um/uh", handles "scratch that", spoken punctuation ("comma", "new line"),
-  your custom word list and replacements. Optionally, a small local AI model (through
-  [Ollama](https://ollama.com)) polishes grammar and formatting and adapts the style to the app
-  (email vs. chat vs. document), with medical-writing rules for doses and drug names.
+  your custom word list and replacements. A small AI model built into the app (llama.cpp, downloaded
+  once on first start; no Ollama needed) polishes grammar and formatting and adapts the style to the app
+  (email vs. chat vs. document), with medical-writing rules for doses and drug names. Ollama can still be chosen instead.
 
 ## Install (Windows)
 
@@ -25,8 +25,9 @@ but is written from scratch and uses open-source models:
    only so versions up to 0.4.0 can update themselves.)
 2. Run it. No administrator password is needed. If Windows says "Windows protected your PC", click
    **More info → Run anyway** (the installer isn't code-signed).
-3. Optional but recommended: install [Ollama](https://ollama.com/download) for the AI cleanup step.
-   Hyper-Wispr downloads its AI model automatically.
+3. Nothing else to install: the AI cleanup model downloads once on first start (about 2 GB) while
+   dictation already works with the basic cleanup. (Processors older than about 2013 can't run the
+   built-in engine; they use [Ollama](https://ollama.com/download) if it's installed.)
 4. The Hyper-Wispr window opens on its dashboard, and a round microphone icon appears in the system tray (bottom right; it may be under the ^ arrow).
    Grey = loading, blue = ready, red = listening, amber = working. The first start downloads the
    speech model once (about 0.5 to 1.6 GB, plus the NVIDIA files above if your card can use them),
@@ -66,7 +67,7 @@ Click the tray icon (or right-click → **Open Hyper-Wispr**) to open the window
   whisper mode, keep the microphone ready, mute music while dictating, paste or type, fit dictations into the
   text around the cursor, learn from your corrections.
 - **Speech**: speech model, English, English + Arabic or Arabic (or other languages), GPU or processor.
-- **AI cleanup**: turn the Ollama step on or off, medical mode, which model, a writing style (formal, casual, very
+- **AI cleanup**: turn it on or off, the model (Fast or Better), built in or Ollama, medical mode, a writing style (formal, casual, very
   casual) for each kind of app, your own extra instructions.
 - **Vocabulary**: words you corrected (offered for the dictionary), dictionary and starred words, replacements,
   snippets, filler words.
@@ -88,7 +89,7 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
   "dictionary": ["apixaban", "empagliflozin", "laparoscopic cholecystectomy"],
   "replacements": { "hyper whisper": "Hyper-Wispr" },
   "snippets": { "my signature": "Dr. Jane Doe\nDepartment of Medicine" },
-  "ai_cleanup": { "enabled": true, "model": "qwen2.5:3b", "medical_mode": true }
+  "ai_cleanup": { "enabled": true, "engine": "builtin", "builtin_model": "qwen2.5-3b" }
 }
 ```
 
@@ -101,7 +102,9 @@ Advanced: everything is stored in `%APPDATA%\HyperWispr\settings.json`, which yo
 - **speech.languages**: the languages you dictate in (default `["en"]`). With one language it is always used;
   with several, Hyper-Wispr picks the most likely of them each time. Guessing from all languages is unreliable
   for short dictations, so keep this list short. `speech.language` forces a single language.
-- **ai_cleanup.model**: any Ollama model. `qwen2.5:3b` is fast; `qwen2.5:7b` or `llama3.1:8b` are better if you have a good GPU.
+- **ai_cleanup.engine**: `builtin` (default) runs the model inside Hyper-Wispr; `ollama` uses the Ollama app.
+- **ai_cleanup.builtin_model**: `qwen2.5-1.5b` (fast), `qwen2.5-3b` (better), or the path to any chat model `.gguf` file.
+- **ai_cleanup.model**: the Ollama model, when the engine is `ollama`. `qwen2.5:3b` is fast; `qwen2.5:7b` or `llama3.1:8b` are better if you have a good GPU.
 - **push_to_talk_keys**: key names like `ctrl_l`, `ctrl_r`, `cmd` (the Windows key), `alt_l`, `shift_r`, `f8`.
 
 History is kept locally in `%APPDATA%\HyperWispr\history.sqlite3`, and the log in `hyper-wispr.log` in the same folder.
@@ -128,7 +131,7 @@ checksums into `gpu_pack.json`, and the app downloads them from PyPI only on PCs
 (`hyper_wispr/gpu_pack.py`, files kept in `%LOCALAPPDATA%\HyperWispr\nvidia` so updates don't fetch them again).
 
 Code layout: `hyper_wispr/hotkeys.py` (push-to-talk state machine), `audio.py` (microphone),
-`speech.py` (Whisper), `gpu_pack.py` (NVIDIA check and download), `cleanup.py` (rules), `ai_cleanup.py` (Ollama), `context.py` (which app is in front),
+`speech.py` (Whisper), `gpu_pack.py` (NVIDIA check and download), `cleanup.py` (rules), `ai_cleanup.py` (AI cleanup), `local_llm.py` (the built-in AI engine and its helper process), `context.py` (which app is in front),
 `paste.py` and `clipboard.py` (paste, keeping your clipboard and keeping dictations out of clipboard history),
 `uia.py` (reading the text box you dictate into), `learn.py` (learning corrected words), `media.py` (muting music),
 `history.py` and `secure.py` (encrypted history and notes), `app.py` (tray app tying it together), `updates.py` (update check and install), `settings_ui/` (the window:
