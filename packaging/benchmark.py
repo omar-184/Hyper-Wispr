@@ -580,7 +580,7 @@ def _ollama_snapshot() -> list:
 def bench_ai(res: dict, texts: dict) -> None:
     from hyper_wispr import ai_cleanup, cleanup, medical
 
-    s = settings(ai_cleanup__enabled=True)
+    s = settings(ai_cleanup__enabled=True, ai_cleanup__engine="ollama")
     if not ai_cleanup.is_available(s):
         raise RuntimeError("Ollama isn't running")
     base = s["ai_cleanup"]["ollama_url"].rstrip("/")
@@ -656,6 +656,89 @@ def bench_ai(res: dict, texts: dict) -> None:
     res["after_idle_with_warm_up"] = {**m.dict(), "used_ai": not catcher.seen, "warnings": list(catcher.seen)}
     logging.getLogger("hyper_wispr").removeHandler(catcher)
     ai_cleanup.warm_up(s)
+
+
+def ai_helper_procs() -> list:
+    """The built-in AI engine's helper process (local_llm), started by this process."""
+    out = []
+    for p in psutil.Process().children(recursive=True):
+        try:
+            if "--ai-worker" in p.cmdline():
+                out.append(p)
+        except psutil.Error:
+            pass
+    return out
+
+
+@section("ai_builtin")
+def bench_ai_builtin(res: dict, texts: dict) -> None:
+    """The built-in engine (llama.cpp in a helper process): each model, guessing ahead from the
+    dictation on and off, on the same dictations as the Ollama part, through the app's own checks."""
+    from hyper_wispr import ai_cleanup, cleanup, local_llm, medical
+
+    if not local_llm.usable():
+        raise RuntimeError("built-in engine not usable: " + local_llm.why_not())
+    base = settings(ai_cleanup__enabled=True)
+    inputs = {name: cleanup.apply_style(medical.fix(cleanup.clean(text, base), base), "formal") for name, text in texts.items()}
+    inputs["long"] = cleanup.apply_style(medical.fix(cleanup.clean(" ".join(CLIPS[k] for k in MEDICAL), base), base), "formal")
+    catcher = _Warnings()
+    logging.getLogger("hyper_wispr").addHandler(catcher)
+    stats: list = []
+
+    class _Stats(logging.Handler):
+        def emit(self, record):
+            if record.getMessage().startswith("AI cleanup (built in):"):
+                stats.append(record.getMessage().split(":", 1)[1].strip())
+
+    logging.getLogger("hyper_wispr.local_llm").addHandler(_Stats())
+    runs = []
+    for model in local_llm.MODELS:
+        t = time.perf_counter()
+        local_llm.download(model)
+        dl = round(time.perf_counter() - t, 1)
+        for draft in (0, 8):
+            s = settings(ai_cleanup__enabled=True, ai_cleanup__engine="builtin", ai_cleanup__builtin_model=model,
+                         ai_cleanup__draft_tokens=draft)
+            local_llm.close()  # a fresh helper: loading is measured
+            ai_cleanup._last_answer = ai_cleanup._last_warm_up = float("-inf")
+            with Meter(ai_helper_procs, machine=True) as m:
+                ai_cleanup.warm_up(s, "document")
+            run = {"model": model, "draft": draft, "download_s": dl, "warm_up": m.dict(), "rows": []}
+            for name, text in inputs.items():
+                if not text or len(text.split()) < s["ai_cleanup"]["min_words"]:
+                    continue
+                catcher.seen.clear()
+                stats.clear()
+                with Meter(ai_helper_procs, machine=True) as m:
+                    out = ai_cleanup.refine(text, s, "document")
+                row = {"clip": name, "words": len(text.split()), "app": m.dict(), "used_ai": not catcher.seen,
+                       "warnings": list(catcher.seen), "engine": stats[-1] if stats else None, "output": out,
+                       **_ai_checks(text, out)}
+                # The same dictation without the app's time limit, to see the model's own answer and speed.
+                if catcher.seen:
+                    stats.clear()
+                    t = time.perf_counter()
+                    try:
+                        raw = ai_cleanup._chat(s, ai_cleanup.build_system_prompt(s, "document", "", text),
+                                               f"<dictation>\n{text}\n</dictation>", 600, 600, source=text)
+                    except Exception as e:
+                        raw = f"failed: {e}"
+                    row["no_limit"] = {"seconds": round(time.perf_counter() - t, 2), "output": raw,
+                                       "engine": stats[-1] if stats else None, **_ai_checks(text, raw)}
+                run["rows"].append(row)
+                print(f"  {model} draft {draft} {name}: {row['app']['seconds']}s AI used {row['used_ai']} "
+                      f"{row['engine']} {out!r}", flush=True)
+            with Meter(ai_helper_procs, machine=True) as m:
+                try:
+                    out = ai_cleanup.command("make this shorter", CLIPS["m3"], s)
+                except ai_cleanup.CommandError as e:
+                    out = f"refused: {e}"
+            run["command"] = {**m.dict(), "output": out}
+            runs.append(run)
+            res["runs"] = runs
+            save()
+    local_llm.close()
+    logging.getLogger("hyper_wispr").removeHandler(catcher)
 
 
 @section("overlay")
@@ -1254,6 +1337,12 @@ def summary() -> str:
         for key in ("after_idle_no_warm_up", "after_idle_with_warm_up"):
             if key in ai:
                 out.append(f"- {key}: {ai[key]['seconds']} s, AI used: {ai[key]['used_ai']}")
+    for run in R.get("ai_builtin", {}).get("runs", []):
+        out += ["", f"## Built-in AI {run['model']}, guessing ahead {run['draft']}: warm-up {run['warm_up'].get('seconds')} s", "",
+                "| clip | words | app s | AI used | numbers, meaning kept | engine | output |", "|---|---|---|---|---|---|---|"]
+        for r in run["rows"]:
+            out.append(f"| {r['clip']} | {r['words']} | {r['app']['seconds']} | {r['used_ai']} | {r['numbers_kept']}, "
+                       f"{r['meaning_kept']} | {r.get('engine')} | {r['output'][:80]!r} |")
     app = R.get("app", {})
     if app.get("runs"):
         out += ["", f"## Whole app: ready {app.get('start_to_ready_s')} s, idle {app.get('idle_30s')}", "",
@@ -1289,6 +1378,8 @@ def main() -> None:
     if "ai" not in skip:
         # The sentences as written, not as heard, so runs can be compared.
         bench_ai({k: CLIPS[k.split("_")[0]] for k in AI_CLIPS})
+    if "ai_builtin" not in skip:
+        bench_ai_builtin({k: CLIPS[k.split("_")[0]] for k in AI_CLIPS})
     if "turbo" not in skip:
         bench_turbo(clips)
     if "overlay" not in skip:

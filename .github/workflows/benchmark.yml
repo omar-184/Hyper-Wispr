@@ -5,6 +5,10 @@ name: Benchmark
 # card. Start it by hand from the Actions tab; the numbers are on the run's summary page.
 on:
   workflow_dispatch:
+    inputs:
+      skip:
+        description: "Parts to leave out, comma-separated (medical, history, speech, ai, ai_builtin, turbo, overlay, desktop, app, window)"
+        default: ""
 
 jobs:
   benchmark:
@@ -16,10 +20,25 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: The compiled AI engine, if cached
+        # llama-cpp-python is source-only on PyPI. Compiled once per version and kept in the cache.
+        # Not for the build machine's processor: for any with AVX2 (Intel 2013+, AMD 2015+), which
+        # local_llm checks before using it. OpenMP off, so no extra Microsoft DLL is needed.
+        uses: actions/cache@v4
+        with:
+          path: wheels
+          key: llama-cpp-python-0.3.36-avx2-py3.12-v1
+      - name: Compile the AI engine if it isn't cached
+        shell: bash
+        env:
+          CMAKE_ARGS: "-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DLLAVA_BUILD=OFF"
+        run: |
+          ls wheels/llama_cpp_python-*.whl 2>/dev/null || pip wheel --no-deps -w wheels "llama-cpp-python==0.3.36"
+
       - name: Install Hyper-Wispr
         shell: bash
         run: |
-          pip install . psutil edge-tts
+          pip install --find-links wheels ".[ai]" psutil edge-tts
           # Generated at build time in the installed app, so it isn't timed here either.
           python -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll'); import comtypes.gen.UIAutomationClient"
 
@@ -42,7 +61,7 @@ jobs:
 
       - name: Benchmark
         shell: bash
-        run: python packaging/benchmark.py --out bench-results
+        run: python packaging/benchmark.py --out bench-results --skip "${{ inputs.skip }}"
 
       - name: Results
         if: always()

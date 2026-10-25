@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--settings", action="store_true", help="open the Hyper-Wispr window (the tray app does this for you)")
     parser.add_argument("--settings-self-test", action="store_true", help="open the Settings window, check it works, close it (used by the build)")
     parser.add_argument("--overlay-self-test", action="store_true", help="flash the listening indicator, then exit (used by the build)")
+    parser.add_argument("--ai-worker", metavar="ADDRESS", help=argparse.SUPPRESS)  # the AI cleanup helper (local_llm)
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args()
 
@@ -26,7 +27,7 @@ def main() -> None:
     give_streams_somewhere_to_go()
 
     log_path = config.app_dir() / "hyper-wispr.log"
-    if not (args.settings or args.settings_self_test):
+    if not (args.settings or args.settings_self_test or args.ai_worker):
         trim_log(log_path)
     handlers: list[logging.Handler] = [logging.FileHandler(log_path, encoding="utf-8")]
     if has_console:
@@ -35,6 +36,11 @@ def main() -> None:
 
     if args.self_test:
         sys.exit(self_test())
+
+    if args.ai_worker:
+        from .local_llm import worker_main
+
+        sys.exit(worker_main(args.ai_worker))
 
     if args.overlay_self_test:
         from .overlay import self_test as overlay_self_test
@@ -154,6 +160,14 @@ def self_test() -> int:
             raise RuntimeError("The medical dictionary's word lists are missing from the build")
         if medical.fix("metoprolal 25 milligrams", {"medical": {"enabled": True}}) != "metoprolol 25 mg":
             raise RuntimeError("The medical dictionary doesn't work")
+        from . import local_llm
+
+        if getattr(sys, "frozen", False) and not local_llm.installed():
+            raise RuntimeError("The built-in AI engine (llama_cpp) is missing from the build")
+        if local_llm.usable():
+            import llama_cpp  # loads llama.dll and the ggml DLLs
+
+            logging.info("Built-in AI engine: llama-cpp-python %s", llama_cpp.__version__)
         cards = [gpu_pack.describe(c) for c in gpu_pack.nvidia_cards()]
         logging.info("Self-test OK: ctranslate2 %s, CUDA devices: %s, NVIDIA cards: %s", ctranslate2.__version__, cuda_available(), cards or "none")
         return 0

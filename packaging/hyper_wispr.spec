@@ -9,6 +9,8 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 datas = collect_data_files("faster_whisper") + collect_data_files("onnxruntime")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("sounddevice")
+# The built-in AI cleanup engine: llama.dll and the ggml DLLs it loads from llama_cpp/lib.
+binaries += collect_dynamic_libs("llama_cpp")
 datas += collect_data_files("_sounddevice_data")
 datas += collect_data_files("hyper_wispr")  # the Settings window's web/ files
 # Added from the source folder: it's written after `pip install .`, so the installed copy lacks it.
@@ -26,6 +28,7 @@ hiddenimports = (
     + collect_submodules("pycaw")
     + ["webview.platforms.edgechromium", "webview.platforms.winforms", "clr"]
     + ["ctranslate2", "onnxruntime", "av"]
+    + collect_submodules("llama_cpp", filter=lambda name: ".server" not in name)
 )
 
 a = Analysis(

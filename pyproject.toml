@@ -1,7 +1,7 @@
 [project]
 name = "hyper-wispr"
 version = "0.5.0"
-description = "Offline, customizable voice dictation for Windows (Whisper + optional local LLM cleanup)"
+description = "Offline, customizable voice dictation for Windows (Whisper + local AI cleanup)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -23,6 +23,10 @@ dependencies = [
 [project.optional-dependencies]
 # NVIDIA GPU support on Windows: the CUDA libraries faster-whisper needs.
 gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
+# The built-in AI cleanup engine (llama.cpp). PyPI has it as source only: building it needs a C++
+# compiler, so the release build compiles it once (see .github/workflows/release.yml). Without it,
+# AI cleanup uses Ollama.
+ai = ["llama-cpp-python==0.3.36"]
 dev = ["pytest"]
 
 [project.scripts]
@@ -38,3 +42,6 @@ packages = ["hyper_wispr", "hyper_wispr.settings_ui", "hyper_wispr.medical"]
 [tool.setuptools.package-data]
 "hyper_wispr.settings_ui" = ["web/*"]
 "hyper_wispr.medical" = ["data/*"]
+
+[tool.pytest.ini_options]
+markers = ["builtin_ai: uses the built-in AI engine (local_llm) instead of the stand-in Ollama"]

@@ -20,6 +20,7 @@ const S = {
   gpu: null,
   mics: null,
   ollama: null,
+  ai: null, // the built-in AI engine: usable here, which models are downloaded
   moreLanguages: false,
 };
 const api = () => window.pywebview.api;
@@ -637,7 +638,7 @@ function homePage() {
         dashCard("Your setup", h("button", { class: "link with-icon", type: "button", onclick: () => go("general") }, "Settings", icon("arrow")), h("div", { class: "dash-rows" },
           setupRow("Microphone", micName(), "general"),
           setupRow("Languages", languageSummary().replace(/\.$/, ""), "speech"),
-          setupRow("AI model", get("ai_cleanup.enabled") ? get("ai_cleanup.model") : "Off", "ai"),
+          setupRow("AI model", get("ai_cleanup.enabled") ? aiModelName() : "Off", "ai"),
           setupRow("Words in your dictionary", formatNumber((get("dictionary") || []).length), "vocab"))))),
   ];
 }
@@ -664,6 +665,10 @@ async function refreshStatus() {
   // A dictation just finished: the numbers and the recent list have changed.
   if (before && before.status !== "idle" && S.status.status === "idle") return refreshStats();
   if (S.page === "home") render();
+  if (S.page === "ai" && JSON.stringify(S.status.ai_download) !== JSON.stringify(before && before.ai_download)) {
+    if (!S.status.ai_download) refreshAi(); // finished: the model is downloaded now
+    else render();
+  }
 }
 
 function commandRows() {
@@ -838,29 +843,62 @@ function advanced(rows) {
 const STYLE_APPS = [["email", "Email"], ["message", "Chat and messages"], ["document", "Documents"], ["ai_chat", "AI assistants"], ["code", "Code editors"], ["other", "Everything else"]];
 const TONE_OPTIONS = [{ value: "formal", label: "Formal" }, { value: "casual", label: "Casual" }, { value: "very_casual", label: "Very casual" }];
 
+function builtinEngine() {
+  return get("ai_cleanup.engine") !== "ollama" && !(S.ai && !S.ai.usable);
+}
+
+function aiModelName() {
+  if (!builtinEngine()) return get("ai_cleanup.model");
+  const key = get("ai_cleanup.builtin_model");
+  const m = S.ai && S.ai.models.find((x) => x.key === key);
+  return m ? m.label.replace(/ \(.*/, "") + " (built in)" : String(key || "").split(/[\\/]/).pop();
+}
+
+function aiStatusPill() {
+  const pill = (cls, text) => h("span", { class: "pill" + (cls ? " " + cls : "") }, h("span", { class: "dot" }), text);
+  if (builtinEngine()) {
+    const dl = S.status && S.status.ai_download;
+    if (dl) return pill("", dl.total ? `Downloading the model: ${Math.min(99, Math.floor((dl.done / dl.total) * 100))}%` : "Downloading the model…");
+    if (!S.ai) return pill("", "Checking…");
+    const m = S.ai.models.find((x) => x.key === get("ai_cleanup.builtin_model"));
+    if (m && !m.downloaded) return pill("", "Downloads at the next start");
+    return pill("ok", "Built in · ready");
+  }
+  const st = S.ollama;
+  return st === null ? pill("", "Checking Ollama…")
+    : st.running ? pill("ok", `Ollama is running · ${st.models.length} model${st.models.length === 1 ? "" : "s"}`)
+      : pill("bad", "Ollama isn't running");
+}
+
 function aiPage() {
   const enabled = !!get("ai_cleanup.enabled");
+  const builtin = builtinEngine();
   const st = S.ollama;
-  const pill = st === null ? h("span", { class: "pill" }, h("span", { class: "dot" }), "Checking Ollama…")
-    : st.running ? h("span", { class: "pill ok" }, h("span", { class: "dot" }), `Ollama is running · ${st.models.length} model${st.models.length === 1 ? "" : "s"}`)
-      : h("span", { class: "pill bad" }, h("span", { class: "dot" }), "Ollama isn't running");
   const current = get("ai_cleanup.model");
   const models = st && st.running ? st.models : [];
   const modelOptions = models.map((m) => ({ value: m, label: m }));
   if (current && !models.includes(current) && !models.includes(current + ":latest")) {
     modelOptions.unshift({ value: current, label: `${current}${st && st.running ? " (downloads on next start)" : ""}` });
   }
+  const builtinOptions = (S.ai ? S.ai.models : []).map((m) => ({ value: m.key, label: m.label + (m.downloaded ? "" : " · downloads once") }));
+  const key = get("ai_cleanup.builtin_model");
+  if (key && !builtinOptions.some((o) => o.value === key)) builtinOptions.unshift({ value: key, label: String(key).split(/[\\/]/).pop() });
   const off = !enabled;
+  const statusDesc = builtin
+    ? "Runs inside Hyper-Wispr. Nothing to install, and nothing leaves this computer."
+    : S.ai && !S.ai.usable && get("ai_cleanup.engine") !== "ollama"
+      ? `Using Ollama because ${S.ai.why_not}.`
+      : st && !st.running
+        ? ["Needs the free Ollama app; without it you get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
+        : null;
   return [
     ...pageHeader("AI cleanup", "A small AI model on this computer fixes punctuation, \"um\"s, \"no wait, I mean…\" corrections and lists."),
     cols([
       section(null, [
         h("div", { class: "row" },
-          h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Status"),
-            h("div", { class: "row-desc" }, st && !st.running
-              ? ["Needs the free Ollama app; without it you get the basic cleanup. ", h("button", { class: "link", type: "button", onclick: () => api().open_url("https://ollama.com/download") }, "Get Ollama")]
-              : null)),
-          h("div", { class: "row-control" }, pill, h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
+          h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Status"), statusDesc && h("div", { class: "row-desc" }, statusDesc)),
+          h("div", { class: "row-control" }, aiStatusPill(),
+            !builtin && h("button", { class: "btn small", type: "button", onclick: () => { S.ollama = null; render(); refreshOllama(); } }, "Check again"))),
         row("Use AI cleanup", null, toggle("ai_cleanup.enabled", () => render())),
       ]),
       section("Writing style", STYLE_APPS.map(([app, label]) => row(label, null, segmented(`ai_cleanup.styles.${app}`, TONE_OPTIONS))),
@@ -868,7 +906,10 @@ function aiPage() {
       advanced([
         row("Skip AI for short phrases", "Fewer words than this skip the AI, so they appear instantly.", numberField("ai_cleanup.min_words", { min: 0, max: 50 })),
         row("Time limit (seconds)", "If the AI hasn't started by then, the basic cleanup is pasted instead.", numberField("ai_cleanup.timeout_seconds", { min: 1, max: 60 })),
-        row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
+        row("AI engine", S.ai && !S.ai.usable ? `Built in isn't available: ${S.ai.why_not}.` : "Built in needs nothing else. Ollama is a separate free app, if you already use it.",
+          segmented("ai_cleanup.engine", [{ value: "builtin", label: "Built in" }, { value: "ollama", label: "Ollama" }], () => { render(); refreshOllama(); }),
+          { disabled: S.ai && !S.ai.usable }),
+        !builtin && row("Ollama address", null, textField("ai_cleanup.ollama_url", { placeholder: "http://127.0.0.1:11434" })),
       ]),
     ], [
       section("Writing", [
@@ -876,8 +917,11 @@ function aiPage() {
           h("div", { class: "row-text" }, h("div", { class: "row-label" }, "Medical writing"),
             h("div", { class: "row-desc" }, get("medical.enabled") ? "On: numbers stay exact and the AI gets the medical terms you said." : "Off.")),
           h("div", { class: "row-control" }, h("button", { class: "btn small", type: "button", onclick: () => go("medical") }, "Medical settings"))),
-        row("Model", "Larger models write better but are slower.",
-          modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
+        builtin
+          ? row("Model", "Fast answers sooner; Better writes a little better. A new model downloads once.",
+            builtinOptions.length ? select("ai_cleanup.builtin_model", builtinOptions) : null, { disabled: off })
+          : row("Model", "Larger models write better but are slower.",
+            modelOptions.length ? select("ai_cleanup.model", modelOptions) : textField("ai_cleanup.model", { placeholder: "qwen2.5:3b" }), { disabled: off }),
         h("div", { class: "row stack" + (off ? " disabled" : "") },
           h("div", { class: "row-text" }, h("label", { class: "row-label", for: "extra" }, "Extra instructions"),
             h("div", { class: "row-desc" }, "For example: \"Use British spelling.\"")),
@@ -1339,6 +1383,11 @@ async function refreshOllama() {
   if (S.page === "ai") render();
 }
 
+async function refreshAi() {
+  S.ai = await api().ai_status();
+  if (S.page === "ai" || S.page === "home") render();
+}
+
 async function init() {
   const st = await api().get_state();
   S.settings = st.settings;
@@ -1369,6 +1418,7 @@ async function init() {
   api().list_microphones().then((m) => { S.mics = m; if (S.page === "general") render(); });
   api().gpu_status().then((g) => { S.gpu = g; if (S.page === "speech") render(); }).catch(() => { S.gpu = { usable: false }; });
   refreshOllama();
+  refreshAi();
 }
 
 document.addEventListener("keydown", (e) => {

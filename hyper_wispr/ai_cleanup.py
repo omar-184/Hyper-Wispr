@@ -1,7 +1,8 @@
-"""Optional second pass with a local LLM served by Ollama (http://127.0.0.1:11434).
+"""Optional second pass with a small local AI model: built into Hyper-Wispr (local_llm, the default)
+or served by Ollama (http://127.0.0.1:11434).
 
 The model only rewrites the dictated text: punctuation, grammar, self-corrections,
-formatting for the target app. If Ollama is not running or is slow, the rule-based
+formatting for the target app. If the model isn't ready or is slow, the rule-based
 text is used unchanged, so dictation never blocks on the AI step.
 """
 
@@ -16,7 +17,7 @@ import urllib.request
 from collections import Counter
 from typing import Any
 
-from . import context, medical
+from . import context, local_llm, medical
 
 log = logging.getLogger(__name__)
 
@@ -72,17 +73,18 @@ def build_system_prompt(settings: dict[str, Any], app_type: str, before: str = "
     """text: the dictation, so medical dictation can list the terms that look like its words."""
     cfg = settings["ai_cleanup"]
     parts = [BASE_PROMPT]
-    if STYLE.get(app_type):
-        parts.append(STYLE[app_type])
-    parts.append(TONES.get(style_for(settings, app_type), TONES["formal"]))
     if medical.enabled(settings):
         parts.append(MEDICAL_RULES)
     if words := dictionary_words(settings):
         parts.append("Spell these words exactly like this: " + ", ".join(words))
     if cfg.get("extra_instructions"):
         parts.append(cfg["extra_instructions"])
-    # What changes with every dictation comes last: Ollama reuses the instructions above when they
-    # match the last request's, instead of reading them again (seconds on a processor).
+    # What changes more often comes later: the model reuses the instructions that match the last
+    # request's from the start, instead of reading them again (seconds on a processor). The style
+    # changes with the app, the medical terms and the text on screen with every dictation.
+    if STYLE.get(app_type):
+        parts.append(STYLE[app_type])
+    parts.append(TONES.get(style_for(settings, app_type), TONES["formal"]))
     if medical.enabled(settings) and text and (terms := medical.ai_terms(text, settings)):
         parts.append(
             "Medical terms that sound like words of this dictation. Where the speaker clearly meant one of "
@@ -130,15 +132,29 @@ def is_available(settings: dict[str, Any]) -> bool:
         return False
 
 
-# When Ollama last answered: it keeps the model loaded for 30 minutes after that.
+# When the model last answered: it stays loaded for 30 minutes after that (Ollama and the built-in one).
 _last_answer = _last_warm_up = float("-inf")
 
 
+def uses_builtin(settings: dict[str, Any]) -> bool:
+    """The built-in engine, unless Ollama is chosen or this PC can't run it. While the built-in model
+    is still downloading (first start), Ollama answers if it's running."""
+    cfg = settings["ai_cleanup"]
+    if local_llm.engine(cfg) != "builtin":
+        return False
+    return local_llm.model_path(cfg.get("builtin_model") or local_llm.DEFAULT_MODEL) is not None or not is_available(settings)
+
+
 def _chat(settings: dict[str, Any], system: str, user: str, timeout: float, budget: float | None = None,
-          max_words: int | None = None) -> str:
-    """budget: stream the answer (see _post); max_words: stop after that many (a warm-up needs one)."""
+          max_words: int | None = None, source: str | None = None, max_tokens: int = 1024) -> str:
+    """budget: stream the answer (see _post); max_words: stop after that many (a warm-up needs one);
+    source: the text the answer mostly repeats (the built-in engine guesses ahead from it)."""
     global _last_answer
     cfg = settings["ai_cleanup"]
+    if uses_builtin(settings):
+        out = local_llm.chat(cfg, system, user, timeout, budget, max_tokens=max_words or max_tokens, source=source)
+        _last_answer = time.monotonic()
+        return out.strip()
     payload = {
         "model": cfg["model"],
         "stream": budget is not None,
@@ -162,8 +178,8 @@ def refine(text: str, settings: dict[str, Any], app_type: str, before: str = "")
     limit = cfg.get("timeout_seconds", 8)
     try:
         out = _chat(settings, build_system_prompt(settings, app_type, before, text), f"<dictation>\n{text}\n</dictation>",
-                    limit, budget=limit + 0.3 * words)
-    except Exception as e:  # optional step: any failure (timeout, Ollama restarting, bad reply) keeps the text
+                    limit, budget=limit + 0.3 * words, source=text, max_tokens=len(text) * 2 // 3 + 64)
+    except Exception as e:  # optional step: any failure (timeout, the model restarting, bad reply) keeps the text
         log.warning("AI cleanup skipped: %s", e)
         return text
     out = _plain(out.removeprefix("<dictation>").removesuffix("</dictation>").strip(), text)
@@ -286,10 +302,11 @@ def command(instruction: str, selected: str, settings: dict[str, Any]) -> str:
         system += "\n\n" + cfg["extra_instructions"]
     user = f"<instruction>\n{instruction}\n</instruction>\n<selected>\n{selected}\n</selected>"
     try:
-        out = _chat(settings, system, user, max(30, cfg.get("timeout_seconds", 8) * 4))
+        out = _chat(settings, system, user, max(30, cfg.get("timeout_seconds", 8) * 4), source=selected)
     except Exception as e:
         log.warning("Command mode failed: %s", e)
-        raise CommandError("The AI model didn't answer. Check that Ollama is running (Settings → AI cleanup).") from e
+        hint = "Check Settings → AI cleanup." if uses_builtin(settings) else "Check that Ollama is running (Settings → AI cleanup)."
+        raise CommandError("The AI model didn't answer. " + hint) from e
     out = re.sub(r"^```\w*\n|\n```$", "", out).strip()
     out = out.removeprefix("<selected>").removesuffix("</selected>").strip()
     if not out:
@@ -434,6 +451,37 @@ def ensure_model(settings: dict[str, Any]) -> None:
     log.info("Ollama model %s downloaded", model)
 
 
+def prepare(settings: dict[str, Any], progress=None) -> None:
+    """At start-up and when the AI settings change: get the model ready (download it the first time,
+    load it, read the instructions). progress(done, total, "ai") while the built-in model downloads."""
+    cfg = settings["ai_cleanup"]
+    if not cfg.get("enabled"):
+        return
+    if local_llm.engine(cfg) == "builtin":
+        key = cfg.get("builtin_model") or local_llm.DEFAULT_MODEL
+        try:
+            local_llm.download(key, progress)
+        except Exception as e:
+            log.warning("Could not download the AI cleanup model (%s); trying again at the next start", e)
+            return
+        warm_up(settings)
+        log.info("AI cleanup ready with the built-in model %s", key)
+        return
+    if cfg.get("engine", "builtin") == "builtin":
+        log.info("Using Ollama for AI cleanup: %s", local_llm.why_not())
+    if not is_available(settings):
+        try_start_ollama(settings)
+    if is_available(settings):
+        try:
+            ensure_model(settings)
+        except Exception as e:
+            log.warning("Could not download the Ollama model: %s", e)
+        warm_up(settings)
+        log.info("AI cleanup ready with Ollama model %s", cfg["model"])
+    else:
+        log.warning("Ollama is not running; AI cleanup will be skipped until it is.")
+
+
 def warm_up(settings: dict[str, Any], app_type: str = context.OTHER) -> None:
     """Load the model and have it read the instructions, so the first dictation isn't slow. Only
     loading it isn't enough: on a processor, reading the instructions the first time can take
@@ -444,11 +492,11 @@ def warm_up(settings: dict[str, Any], app_type: str = context.OTHER) -> None:
     try:
         _chat(settings, build_system_prompt(settings, app_type), "<dictation>\nOK.\n</dictation>", 120, max_words=1)
     except Exception as e:
-        log.warning("Could not warm up Ollama model %s: %s", cfg["model"], e)
+        log.warning("Could not warm up the AI model: %s", e)
 
 
 def prewarm(settings: dict[str, Any], app_type: str) -> None:
-    """At the start of a dictation: if Ollama may have let the model go (30 minutes without a
+    """At the start of a dictation: if the model may have been let go (30 minutes without a
     dictation), load it again in the background while the speaker is still talking."""
     global _last_warm_up
     now = time.monotonic()

@@ -71,10 +71,16 @@ DEFAULTS: dict[str, Any] = {
         "backtrack_phrases": ["scratch that", "delete that"],
     },
     "ai_cleanup": {
-        # Uses a local Ollama model (https://ollama.com). Nothing leaves the computer.
+        # A small AI model on this computer. Nothing leaves the computer.
         "enabled": True,
+        # "builtin": run by Hyper-Wispr itself (downloaded once); "ollama": served by the Ollama app.
+        "engine": "builtin",
+        # The built-in engine's model: "qwen2.5-1.5b" (fast), "qwen2.5-3b" (better), or a path to a .gguf file.
+        "builtin_model": "qwen2.5-3b",
+        # How many words the built-in engine guesses ahead from the dictation (0 turns guessing off).
+        "draft_tokens": 8,
         "ollama_url": "http://127.0.0.1:11434",
-        "model": "qwen2.5:3b",
+        "model": "qwen2.5:3b",  # the Ollama model
         "timeout_seconds": 8,
         # Short dictations (< this many words) skip the AI step to stay instant.
         "min_words": 4,
